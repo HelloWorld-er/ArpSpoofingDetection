@@ -5,7 +5,11 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <memory>
+#include <cstdio>
 #include <string>
+#include <array>
+#include <unordered_set>
 #include <unordered_map>
 #include <pcap/pcap.h>
 #include <pcap/dlt.h>
@@ -30,6 +34,7 @@ std::ostream& operator<<(std::ostream& os, PlatformID platform_id) {
 #if defined(_WIN32) || defined(_WIN64)
 PlatformID platform_id = PlatformID::WINDOWS;
 #elif defined(__APPLE__) || defined(__MACH__)
+#include <cstdlib>
 PlatformID platform_id = PlatformID::MACOS;
 #elif defined(__linux__)
 PlatformID platform_id = PlatformID::LINUX;
@@ -37,13 +42,40 @@ PlatformID platform_id = PlatformID::LINUX;
 PlatformID platform_id = PlatformID::UNKNOWN;
 #endif
 
-int get_dhcp_lease_time();
+class ActivePrivateNetworkIP {
+public:
+    std::string ip_address;
+    time_t last_seen_time;
+    bool is_router = false;
+    ActivePrivateNetworkIP(std::string ip_addr, time_t last_seen, bool if_router = false) {
+        ip_address = std::move(ip_addr);
+        last_seen_time = last_seen;
+        is_router = if_router;
+    }
+    void refresh_last_time(time_t new_last_seen) {
+        last_seen_time = new_last_seen;
+    }
+    time_t calc_time_pass(const time_t& new_last_seen) const {
+        return new_last_seen - last_seen_time;
+    }
+    bool ip_equals_to(const std::string& ip_addr) const {
+        return ip_address == ip_addr;
+    }
+    bool if_router() const {
+        return is_router == true;
+    }
+};
+
+std::unordered_set<std::string> get_router_ips(const std::string&);
+int get_dhcp_lease_time(const std::string&);
 bool check(int, int, const char*, pcap_t*);
 std::string bytes_to_hex(const u_char*, size_t, const char*);
 std::string bytes_to_int(const u_char*, size_t, const char*);
 
-std::unordered_map<std::string, std::string> mac_to_ip_map;
+std::unordered_map<std::string, ActivePrivateNetworkIP> mac_to_ip_map;
 const std::string unknown_mac_address = "00:00:00:00:00:00";
+std::unordered_set<std::string> router_ip_addrs;
+int dhcp_lease_time;
 
 int main() {
     std::cout << "Platform: " << platform_id << std::endl;
@@ -82,7 +114,9 @@ int main() {
         return 1;
     }
 
-    pcap_t *pcap_handle = pcap_create("en0", error_buf);
+    std::string interface = "en0";
+
+    pcap_t *pcap_handle = pcap_create(interface.c_str(), error_buf);
     if (pcap_handle == nullptr) {
         std::cerr << error_buf << std::endl;
         pcap_close(pcap_handle);
@@ -120,12 +154,20 @@ int main() {
         return 1;
     }
 
+    // get routers' ips
+    router_ip_addrs = get_router_ips(interface);
+
     // get DHCP lease time
-    int dhcp_lease_time = get_dhcp_lease_time();
+    dhcp_lease_time = get_dhcp_lease_time(interface);
+    if (dhcp_lease_time < 0) {
+        pcap_close(pcap_handle);
+        return 1;
+    }
+    std::cout << "dhcp_lease_time: " << dhcp_lease_time << std::endl;
 
     std::cout << "capturing: " << std::endl;
 
-    pcap_loop(pcap_handle, 10, [](u_char *args, const pcap_pkthdr *header, const u_char *packet) -> void {
+    pcap_loop(pcap_handle, 0, [](u_char *args, const pcap_pkthdr *header, const u_char *packet) -> void {
         // packet
         // ethernet header + payload (in this case, arp header)
         std::cout << "Packet captured: Length = " << header->len << std::endl;
@@ -146,29 +188,209 @@ int main() {
         std::cout << "ARP target Protocol address (IP): " << target_ip << std::endl;
         std::cout << std::endl;
 
+        time_t current_time = std::time(nullptr);
+        // check sender mac-ip pair
         if (mac_to_ip_map.find(sender_mac) == mac_to_ip_map.end()) {
-            mac_to_ip_map.insert({sender_mac, sender_ip});
+            if (router_ip_addrs.find(sender_mac) == router_ip_addrs.end()) {
+                mac_to_ip_map.insert({sender_mac, ActivePrivateNetworkIP(sender_ip, current_time)});
+            }
+            else {
+                mac_to_ip_map.insert({sender_mac, ActivePrivateNetworkIP(sender_ip, current_time, true)});
+            }
         }
-        else if (mac_to_ip_map[sender_mac] != sender_ip) {
-            std::cerr << "[WARNING] "<< sender_mac << " doesn't match sender IP " << sender_ip << std::endl;
-            std::cerr << "Suspicious IP address: " << sender_ip << std::endl;
-            // pcap_breakloop(reinterpret_cast<pcap_t *>(args));
+        else {
+            auto& entry = mac_to_ip_map.at(sender_mac);
+            if (!entry.ip_equals_to(sender_ip)) {
+                if (entry.if_router() || entry.calc_time_pass(current_time) < dhcp_lease_time) {
+                    std::cerr << "[STRONG WARNING] "<< sender_mac << " doesn't match sender IP " << sender_ip << std::endl;
+                    std::cerr << "Suspicious IP address: " << sender_ip << std::endl;
+                }
+                else {
+                    std::cerr << "[WEAK WARNING] It seems that " << sender_mac << " allocates to another ip address " << sender_ip << " from the previous ip address " << entry.ip_address << std::endl;
+                    entry.ip_address = sender_ip;
+                    entry.refresh_last_time(current_time);
+                }
+            }
+            else {
+                entry.refresh_last_time(current_time);
+            }
         }
 
-        if (mac_to_ip_map.find(target_mac) == mac_to_ip_map.end()) {
-            mac_to_ip_map.insert({target_mac, target_ip});
-        }
-        else if (target_mac != unknown_mac_address && mac_to_ip_map[target_mac] != target_ip) {
-            std::cerr << "[WARNING] " << target_mac << " doesn't match target IP " << target_ip << std::endl;
-            // pcap_breakloop(reinterpret_cast<pcap_t *>(args));
+        // check target mac-ip pair
+        if (target_mac != unknown_mac_address) {
+            if (mac_to_ip_map.find(target_mac) == mac_to_ip_map.end()) {
+                mac_to_ip_map.insert({target_mac, ActivePrivateNetworkIP(target_ip, current_time)});
+            }
+            else {
+                auto& entry = mac_to_ip_map.at(target_mac);
+                if (!entry.ip_equals_to(target_ip)) {
+                    if (entry.if_router() || entry.calc_time_pass(current_time < dhcp_lease_time)) {
+                        std::cerr << "[STRONG WARNING] "<< target_mac << " doesn't match sender IP " << target_ip << std::endl;
+                        std::cerr << "Suspicious IP address: " << target_ip << std::endl;
+                    }
+                    else {
+                        std::cerr << "[WEAK WARNING] It seems that " << target_mac << " allocates to another ip address " << target_ip << " from the previous ip address " << entry.ip_address << std::endl;
+                        entry.ip_address = target_ip;
+                        entry.refresh_last_time(current_time);
+                    }
+                }
+                else if (target_mac != unknown_mac_address) {
+                    entry.refresh_last_time(current_time);
+                }
+            }
         }
 
-    }, reinterpret_cast<u_char *>(pcap_handle));
+    }, nullptr);
 
     pcap_close(pcap_handle);
     return 0;
 }
 
+uint64_t hex_to_uint64(const std::string &hex) {
+    uint64_t hex_uint64;
+    std::stringstream uint64_stream;
+    uint64_stream << std::hex << hex;
+    uint64_stream >> hex_uint64;
+    return hex_uint64;
+}
+
+uint32_t hex_to_uint32(const std::string &hex) {
+    uint32_t hex_uint32;
+    std::stringstream uint32_stream;
+    uint32_stream << std::hex << hex;
+    uint32_stream >> hex_uint32;
+    return hex_uint32;
+}
+
+uint16_t hex_to_uint16(const std::string &hex) {
+    uint16_t hex_uint16;
+    std::stringstream uint16_stream;
+    uint16_stream << std::hex << hex;
+    uint16_stream >> hex_uint16;
+    return hex_uint16;
+}
+
+uint8_t hex_to_uint8(const std::string &hex) {
+    uint8_t hex_uint8;
+    std::stringstream uint8_stream;
+    uint8_stream << std::hex << hex;
+    uint8_stream >> hex_uint8;
+    return hex_uint8;
+}
+
+std::unordered_set<std::string> get_router_ips(const std::string& interface) {
+    if (platform_id == PlatformID::WINDOWS) {}
+    else if (platform_id == PlatformID::MACOS) {
+        std::array<char, 128> buffer;
+        std::string command_output_string;
+        std::string command = "ipconfig getpacket " + interface + " | grep router";
+        std::cout << "running command: " << command << std::endl;
+        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        if (stream == nullptr) { // equivalent to stream.get() == nullptr
+            std::cerr << "popen() failed" << std::endl;
+            return std::unordered_set<std::string>(0);
+        }
+        while (fgets(buffer.data(), buffer.size(), stream.get()) != nullptr) {
+            command_output_string += buffer.data();
+        }
+
+        command_output_string.erase(command_output_string.find_last_not_of('\n') + 1);
+        std::cout << command_output_string << std::endl;
+
+        // extract
+        std::unordered_set<std::string> router_ips;
+        std::string routers;
+        std::string router_ip;
+        size_t routers_start_idx = command_output_string.find('{');
+        size_t routers_end_idx = command_output_string.find('}');
+        if (routers_start_idx != std::string::npos && routers_end_idx != std::string::npos) {
+            if (routers_start_idx + 1 == routers_end_idx) {
+                std::cerr << "NO routers found!" << std::endl;
+                return std::unordered_set<std::string>(0);
+            }
+            routers = command_output_string.substr(routers_start_idx + 1, routers_end_idx - routers_start_idx - 1);
+            std::istringstream ip_stream(routers);
+            while (std::getline(ip_stream, router_ip, ',')) {
+                router_ip.erase(0, router_ip.find_first_not_of(" \t"));
+                router_ip.erase(router_ip.find_last_not_of(" \t") + 1);
+                if (!router_ip.empty()) {
+                    router_ips.insert(router_ip);
+                }
+                else break;
+            }
+            for (auto& router_ip_addr : router_ips) {
+                std::cout << router_ip_addr << " ";
+            }
+            std::cout << std::endl;
+            return router_ips;
+        }
+        std::cerr << "NO routers found!" << std::endl;
+        return std::unordered_set<std::string>(0);
+
+    }
+    else if (platform_id == PlatformID::LINUX) {}
+    else {
+
+    }
+    return std::unordered_set<std::string>(0);
+}
+
+int get_dhcp_lease_time(const std::string& interface) {
+    if (platform_id == PlatformID::WINDOWS) {
+
+    }
+    else if (platform_id == PlatformID::MACOS) {
+        std::array<char, 128> buffer;
+        std::string command_output_string;
+        std::string command = "ipconfig getpacket " + interface + " | grep lease_time";
+        std::cout << "running command: " << command << std::endl;
+        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        if (stream == nullptr) { // equivalent to stream.get() == nullptr
+            std::cerr << "popen() failed" << std::endl;
+            return -1;
+        }
+        while (fgets(buffer.data(), buffer.size(), stream.get()) != nullptr) {
+            command_output_string += buffer.data();
+        }
+
+        command_output_string.erase(command_output_string.find_last_not_of('\n') + 1);
+        std::cout << command_output_string << std::endl;
+
+        // extract data_type = uint32 and value in string
+        std::string data_type;
+        std::string value;
+        size_t type_start_idx = command_output_string.find('(');
+        size_t type_end_idx = command_output_string.find(')');
+        size_t value_start_idx = command_output_string.find(':');
+        if (type_start_idx != std::string::npos && type_end_idx != std::string::npos && value_start_idx != std::string::npos) {
+            data_type = command_output_string.substr(type_start_idx + 1, type_end_idx - type_start_idx - 1);
+            value = command_output_string.substr(value_start_idx + 1);
+            data_type.erase(0, data_type.find_first_not_of(" \t"));
+            data_type.erase(data_type.find_last_not_of(" \t") + 1);
+            value.erase(0, value.find_first_not_of(" \t"));
+            value.erase(value.find_last_not_of(" \t") + 1);
+        }
+        else {
+            std::cerr << "cannot identify dhcp lease time" << std::endl;
+            return -1;
+        }
+
+        // convert value in string to value in corresponding data_type
+        if (data_type == "uint64") return hex_to_uint64(value);
+        if (data_type == "uint32") return hex_to_uint32(value);
+        if (data_type == "uint16") return hex_to_uint16(value);
+        if (data_type == "uint8") return hex_to_uint8(value);
+        std::cerr << "unknown dhcp lease time type (e.g. uint32)" << std::endl;
+        return -1;
+    }
+    else if (platform_id == PlatformID::LINUX) {
+
+    }
+    else {
+        // implicitly means that platform_id = PlatformID::UNKNOWN;
+    }
+    return -1;
+}
 
 std::string bytes_to_int(const u_char *bytes, size_t len, const char* seperator = "") {
     std::string bytes_in_int;
