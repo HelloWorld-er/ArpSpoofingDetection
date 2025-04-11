@@ -2,19 +2,17 @@
 // Created by Yimin Liu on 10/4/2025.
 //
 #include <iostream>
-#include <fstream>
-#include <sstream>
-#include <iomanip>
-#include <ctime>
-#include <memory>
-#include <cstdio>
-#include <string>
-#include <array>
-#include <unordered_set>
-#include <unordered_map>
-#include <pcap/pcap.h>
-#include <pcap/dlt.h>
-#include <netinet/if_ether.h>
+#include <sstream> // stringstream
+#include <iomanip> // formated output
+#include <ctime> // struct tm, typedef time_t
+#include <memory> // for unique_ptr
+#include <cstdint> // for uint32 uint16 ...
+#include <cstdio> // pipe: FILE fclose()
+#include <string> // std::string
+#include <array> // std::array
+#include <unordered_set> // std::unordered_set
+#include <unordered_map> // std::unordered_map
+
 
 enum class PlatformID {
     WINDOWS,
@@ -35,9 +33,14 @@ std::ostream& operator<<(std::ostream& os, PlatformID platform_id) {
 #if defined(_WIN32) || defined(_WIN64)
 PlatformID platform_id = PlatformID::WINDOWS;
 #elif defined(__APPLE__) || defined(__MACH__)
-#include <cstdlib>
+#include <netinet/if_ether.h> // decode the packets
+#include <pcap/pcap.h> // pcap
+#include <pcap/dlt.h> // macro defined DLTxxx
 PlatformID platform_id = PlatformID::MACOS;
 #elif defined(__linux__)
+#include <netinet/if_ether.h> // decode the packets
+#include <pcap/pcap.h> // pcap
+#include <pcap/dlt.h> // macro defined DLTxxx
 PlatformID platform_id = PlatformID::LINUX;
 #else
 PlatformID platform_id = PlatformID::UNKNOWN;
@@ -68,7 +71,7 @@ public:
 };
 
 std::unordered_set<std::string> get_router_ips(const std::string&);
-int get_dhcp_lease_time(const std::string&);
+long long get_dhcp_lease_time(const std::string&);
 bool check(int, int, const char*, pcap_t*);
 std::string bytes_to_hex(const u_char*, size_t, const char*);
 std::string bytes_to_int(const u_char*, size_t, const char*);
@@ -76,7 +79,7 @@ std::string bytes_to_int(const u_char*, size_t, const char*);
 std::unordered_map<std::string, ActivePrivateNetworkIP> mac_to_ip_map;
 const std::string unknown_mac_address = "00:00:00:00:00:00";
 std::unordered_set<std::string> router_ip_addrs;
-int dhcp_lease_time;
+long long dhcp_lease_time;
 
 int main() {
     std::cout << "Platform: " << platform_id << std::endl;
@@ -303,16 +306,14 @@ std::vector<std::string> split(const std::string &s, std::string delims) {
 
 std::unordered_set<std::string> get_router_ips(const std::string& interface) {
     if (platform_id == PlatformID::WINDOWS) {
-    }
-    else if (platform_id == PlatformID::MACOS) {
-        std::array<char, 128> buffer;
+        std::array<char, 128> buffer = {};
         std::string command_output_string;
-        std::string command = "ipconfig getpacket " + interface + " | grep router";
+        std::string command = R"(ipconfig /all | findstr /C:"Default Gateway")";
         std::cout << "running command: " << command << std::endl;
         std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
-        if (stream == nullptr) { // equivalent to stream.get() == nullptr
-            std::cerr << "popen() failed" << std::endl;
-            return std::unordered_set<std::string>(0);
+        if (stream == nullptr) {
+            std::cerr << "popen() failed!" << std::endl;
+            return std::unordered_set<std::string>{};
         }
         while (fgets(buffer.data(), buffer.size(), stream.get()) != nullptr) {
             command_output_string += buffer.data();
@@ -322,46 +323,72 @@ std::unordered_set<std::string> get_router_ips(const std::string& interface) {
         std::cout << command_output_string << std::endl;
 
         // extract
-        std::unordered_set<std::string> router_ips;
-        std::string routers;
-        std::string router_ip;
+        std::string router_ip_addr = split(command_output_string, ":")[1];
+        router_ip_addr.erase(0, router_ip_addr.find_first_not_of(" \t"));
+        router_ip_addr.erase(router_ip_addr.find_last_not_of(" \t") + 1);
+        return std::unordered_set<std::string>{router_ip_addr};
+
+    }
+    if (platform_id == PlatformID::MACOS) {
+        std::array<char, 128> buffer = {};
+        std::string command_output_string;
+        std::string command = "ipconfig getpacket " + interface + " | grep router";
+        std::cout << "running command: " << command << std::endl;
+        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        if (stream == nullptr) { // equivalent to stream.get() == nullptr
+            std::cerr << "popen() failed" << std::endl;
+            return std::unordered_set<std::string>{};
+        }
+        while (fgets(buffer.data(), buffer.size(), stream.get()) != nullptr) {
+            command_output_string += buffer.data();
+        }
+
+        command_output_string.erase(command_output_string.find_last_not_of("\r\n") + 1);
+        std::cout << command_output_string << std::endl;
+
+        // extract
         size_t routers_start_idx = command_output_string.find('{');
         size_t routers_end_idx = command_output_string.find('}');
         if (routers_start_idx != std::string::npos && routers_end_idx != std::string::npos) {
             if (routers_start_idx + 1 == routers_end_idx) {
                 std::cerr << "NO routers found!" << std::endl;
-                return std::unordered_set<std::string>(0);
+                return std::unordered_set<std::string>{};
             }
+
+            std::unordered_set<std::string> router_ips_set;
+            std::string routers;
+            std::string router_ip;
+
             routers = command_output_string.substr(routers_start_idx + 1, routers_end_idx - routers_start_idx - 1);
             std::istringstream ip_stream(routers);
             while (std::getline(ip_stream, router_ip, ',')) {
                 router_ip.erase(0, router_ip.find_first_not_of(" \t"));
                 router_ip.erase(router_ip.find_last_not_of(" \t") + 1);
                 if (!router_ip.empty()) {
-                    router_ips.insert(router_ip);
+                    router_ips_set.insert(router_ip);
                 }
                 else break;
             }
-            for (auto& router_ip_addr : router_ips) {
+            for (auto& router_ip_addr : router_ips_set) {
                 std::cout << router_ip_addr << " ";
             }
             std::cout << std::endl;
-            return router_ips;
+            return router_ips_set;
         }
         std::cerr << "NO routers found!" << std::endl;
-        return std::unordered_set<std::string>(0);
+        return std::unordered_set<std::string>{};
 
     }
-    else if (platform_id == PlatformID::LINUX) {}
+    if (platform_id == PlatformID::LINUX) {}
     else {
 
     }
     return std::unordered_set<std::string>(0);
 }
 
-int get_dhcp_lease_time(const std::string& interface) {
+long long get_dhcp_lease_time(const std::string& interface) {
     if (platform_id == PlatformID::WINDOWS) {
-        std::array<char, 128> buffer;
+        std::array<char, 128> buffer = {};
         std::string command_output_string;
         std::string command = R"(ipconfig /all | findstr /C:"DHCP Enabled" /C:"Lease Obtained" /C:"Lease Expires")";
         std::cout << "running command: " << command << std::endl;
@@ -445,10 +472,10 @@ int get_dhcp_lease_time(const std::string& interface) {
             return -1;
         }
 
-        return static_cast<int>(end_t - start_t);
+        return end_t - start_t;
     }
     if (platform_id == PlatformID::MACOS) {
-        std::array<char, 128> buffer;
+        std::array<char, 128> buffer = {};
         std::string command_output_string;
         std::string command = "ipconfig getpacket " + interface + " | grep lease_time";
         std::cout << "running command: " << command << std::endl;
@@ -484,7 +511,7 @@ int get_dhcp_lease_time(const std::string& interface) {
         }
 
         // convert value in string to value in corresponding data_type
-        if (data_type == "uint64") return hex_to_uint64(value);
+        // if (data_type == "uint64") return hex_to_uint64(value);
         if (data_type == "uint32") return hex_to_uint32(value);
         if (data_type == "uint16") return hex_to_uint16(value);
         if (data_type == "uint8") return hex_to_uint8(value);

@@ -7,9 +7,11 @@ add_executable(MainExecutable
     main.cpp)
 
 # Find and link libpcap
-find_library(PCAP_LIBRARY pcap)
-if (NOT PCAP_LIBRARY)
-    message(FATAL_ERROR "libpcap not found!")
+if (APPLE)
+    find_library(PCAP_LIBRARY pcap)
+    if (NOT PCAP_LIBRARY)
+        message(FATAL_ERROR "libpcap not found!")
+    endif()
 endif()
 
 target_link_libraries(MainExecutable ${PCAP_LIBRARY})
