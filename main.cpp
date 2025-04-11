@@ -5,6 +5,7 @@
 #include <fstream>
 #include <sstream>
 #include <iomanip>
+#include <ctime>
 #include <memory>
 #include <cstdio>
 #include <string>
@@ -45,17 +46,17 @@ PlatformID platform_id = PlatformID::UNKNOWN;
 class ActivePrivateNetworkIP {
 public:
     std::string ip_address;
-    time_t last_seen_time;
+    std::time_t last_seen_time;
     bool is_router = false;
-    ActivePrivateNetworkIP(std::string ip_addr, time_t last_seen, bool if_router = false) {
+    ActivePrivateNetworkIP(std::string ip_addr, std::time_t last_seen, bool if_router = false) {
         ip_address = std::move(ip_addr);
         last_seen_time = last_seen;
         is_router = if_router;
     }
-    void refresh_last_time(time_t new_last_seen) {
+    void refresh_last_time(std::time_t new_last_seen) {
         last_seen_time = new_last_seen;
     }
-    time_t calc_time_pass(const time_t& new_last_seen) const {
+    std::time_t calc_time_pass(const std::time_t& new_last_seen) const {
         return new_last_seen - last_seen_time;
     }
     bool ip_equals_to(const std::string& ip_addr) const {
@@ -188,7 +189,7 @@ int main() {
         std::cout << "ARP target Protocol address (IP): " << target_ip << std::endl;
         std::cout << std::endl;
 
-        time_t current_time = std::time(nullptr);
+        std::time_t current_time = std::time(nullptr);
         // check sender mac-ip pair
         if (mac_to_ip_map.find(sender_mac) == mac_to_ip_map.end()) {
             if (router_ip_addrs.find(sender_mac) == router_ip_addrs.end()) {
@@ -278,8 +279,31 @@ uint8_t hex_to_uint8(const std::string &hex) {
     return hex_uint8;
 }
 
+std::vector<std::string> split(const std::string &s, std::string delims) {
+    std::vector<std::string> returned_vector;
+    std::istringstream split_stream(s);
+    std::string sub_string;
+    std::unordered_set<char> delim_set (delims.begin(), delims.end());
+    char current_char;
+    while (split_stream.get(current_char)) {
+        if (delim_set.find(current_char) == delim_set.end()) {
+            sub_string += current_char;
+        }
+        else {
+            if (!sub_string.empty()) {
+                returned_vector.push_back(sub_string);
+                sub_string.clear();
+            }
+        }
+    }
+    if (!sub_string.empty()) returned_vector.push_back(sub_string);
+    return returned_vector;
+}
+
+
 std::unordered_set<std::string> get_router_ips(const std::string& interface) {
-    if (platform_id == PlatformID::WINDOWS) {}
+    if (platform_id == PlatformID::WINDOWS) {
+    }
     else if (platform_id == PlatformID::MACOS) {
         std::array<char, 128> buffer;
         std::string command_output_string;
@@ -294,7 +318,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& interface) {
             command_output_string += buffer.data();
         }
 
-        command_output_string.erase(command_output_string.find_last_not_of('\n') + 1);
+        command_output_string.erase(command_output_string.find_last_not_of("\r\n") + 1);
         std::cout << command_output_string << std::endl;
 
         // extract
@@ -337,9 +361,93 @@ std::unordered_set<std::string> get_router_ips(const std::string& interface) {
 
 int get_dhcp_lease_time(const std::string& interface) {
     if (platform_id == PlatformID::WINDOWS) {
+        std::array<char, 128> buffer;
+        std::string command_output_string;
+        std::string command = R"(ipconfig /all | findstr /C:"DHCP Enabled" /C:"Lease Obtained" /C:"Lease Expires")";
+        std::cout << "running command: " << command << std::endl;
+        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        if (stream == nullptr) {
+            std::cerr << "popen() failed!" << std::endl;
+            return -1;
+        }
+        while (fgets(buffer.data(), buffer.size(), stream.get()) != nullptr) {
+            command_output_string += buffer.data();
+        }
 
+        command_output_string.erase(command_output_string.find_last_not_of("\r\n") + 1);
+        std::cout << command_output_string << std::endl;
+
+        // extract
+        std::string DHCP_state_str;
+        std::string lease_obtained;
+        std::string lease_expires;
+        std::string output_line;
+        int idx = 0;
+        std::istringstream DHCP_lease_time_stream(command_output_string);
+        while (std::getline(DHCP_lease_time_stream, output_line)) {
+            switch (idx) {
+                case 0: DHCP_state_str = output_line.substr(output_line.find(':') + 1); DHCP_state_str.erase(0, DHCP_state_str.find_first_not_of(" \t")); DHCP_state_str.erase(DHCP_state_str.find_last_not_of(" \t\n\r") + 1); break;
+                case 1: lease_obtained = output_line.substr(output_line.find(':') + 1); lease_obtained.erase(0, lease_obtained.find_first_not_of(" \t")); lease_obtained.erase(lease_obtained.find_last_not_of(" \t\n\r") + 1); break;
+                case 2: lease_expires = output_line.substr(output_line.find(':') + 1);  lease_expires.erase(0, lease_expires.find_first_not_of(" \t")); lease_expires.erase(lease_expires.find_last_not_of(" \t\n\r") + 1);break;
+                default: break;
+            }
+            idx ++;
+        }
+        std::cout << DHCP_state_str << std::endl;
+        std::cout << lease_obtained << std::endl;
+        std::cout << lease_expires << std::endl;
+        if (DHCP_state_str.empty() || lease_obtained.empty() || lease_expires.empty() || DHCP_state_str == "No") {
+            std::cerr << "DHCP lease time not found" << std::endl;
+            return -1;
+        }
+
+        std::unordered_map<std::string, int> months = {
+            {"January", 1},
+            {"February", 2},
+            {"March", 3},
+            {"April", 4},
+            {"May", 5},
+            {"June", 6},
+            {"July", 7},
+            {"August", 8},
+            {"September", 9},
+            {"October", 10},
+            {"November", 11},
+            {"December", 12}
+        };
+
+        std::tm start_time_info = {}, end_time_info = {};
+        // day, mday mon year h:m:s am/pm
+        std::vector<std::string> start_time_data_vector = split(lease_obtained, " ,:");
+
+        start_time_info.tm_mday = std::stoi(start_time_data_vector[1]);
+        start_time_info.tm_mon = months[start_time_data_vector[2]];
+        start_time_info.tm_year = std::stoi(start_time_data_vector[3]);
+        start_time_info.tm_hour = std::stoi(start_time_data_vector[4]);
+        start_time_info.tm_min = std::stoi(start_time_data_vector[5]);
+        start_time_info.tm_sec = std::stoi(start_time_data_vector[6]);
+        if (start_time_data_vector[7] == "pm") start_time_info.tm_hour += 12;
+        std::time_t start_t = std::mktime(&start_time_info);
+
+        std::vector<std::string> end_time_data_vector = split(lease_expires, " ,:");
+
+        end_time_info.tm_mday = std::stoi(end_time_data_vector[1]);
+        end_time_info.tm_mon = months[end_time_data_vector[2]];
+        end_time_info.tm_year = std::stoi(end_time_data_vector[3]);
+        end_time_info.tm_hour = std::stoi(end_time_data_vector[4]);
+        end_time_info.tm_min = std::stoi(end_time_data_vector[5]);
+        end_time_info.tm_sec = std::stoi(end_time_data_vector[6]);
+        if (end_time_data_vector[7] == "pm") end_time_info.tm_hour += 12;
+        std::time_t end_t = std::mktime(&end_time_info);
+
+        if (start_t < 0 || end_t < 0) {
+            std::cerr << "unrecognizable time" << std::endl;
+            return -1;
+        }
+
+        return static_cast<int>(end_t - start_t);
     }
-    else if (platform_id == PlatformID::MACOS) {
+    if (platform_id == PlatformID::MACOS) {
         std::array<char, 128> buffer;
         std::string command_output_string;
         std::string command = "ipconfig getpacket " + interface + " | grep lease_time";
@@ -383,7 +491,7 @@ int get_dhcp_lease_time(const std::string& interface) {
         std::cerr << "unknown dhcp lease time type (e.g. uint32)" << std::endl;
         return -1;
     }
-    else if (platform_id == PlatformID::LINUX) {
+    if (platform_id == PlatformID::LINUX) {
 
     }
     else {
