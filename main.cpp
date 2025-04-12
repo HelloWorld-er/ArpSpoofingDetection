@@ -2,6 +2,7 @@
 // Created by Yimin Liu on 10/4/2025.
 //
 #include <iostream>
+#include <stdexcept> // error handling
 #include <sstream> // stringstream
 #include <iomanip> // formated output
 #include <ctime> // struct tm, typedef time_t
@@ -36,11 +37,15 @@ std::ostream& operator<<(std::ostream& os, PlatformID platform_id) {
 #include <pcap/pcap.h>
 #include <pcap/dlt.h>
 PlatformID platform_id = PlatformID::WINDOWS;
+auto& open_pipe = _popen;
+auto& close_pipe = _pclose;
 #elif defined(__APPLE__) || defined(__MACH__)
 #include <arpa/inet.h>
 #include <pcap/pcap.h> // pcap
 #include <pcap/dlt.h> // macro defined DLTxxx
 PlatformID platform_id = PlatformID::MACOS;
+auto& open_pipe = popen;
+auto& close_pipe = pclose;
 #elif defined(__linux__)
 #include <netinet/if_ether.h> // decode the packets
 #include <pcap/pcap.h> // pcap
@@ -85,6 +90,10 @@ const std::string unknown_mac_address = "00:00:00:00:00:00";
 std::unordered_set<std::string> router_ip_addrs;
 long long dhcp_lease_time;
 
+bool if_pcap_dev_desc_exist(pcap_if_t pcap_if_ele) {
+    return pcap_if_ele.description != nullptr;
+}
+
 int main() {
     std::cout << "Platform: " << platform_id << std::endl;
 
@@ -104,17 +113,22 @@ int main() {
         return 1;
     }
 
-    std::string device;
+    std::string device = "en0";
     bool flag = false;
     current_dev_pointer = head_dev_pointer;
     while (current_dev_pointer != nullptr) {
-        if (std::string(current_dev_pointer->description).find("Ethernet") != std::string::npos) {
+        if (platform_id == PlatformID::WINDOWS && if_pcap_dev_desc_exist(*current_dev_pointer) && std::string(current_dev_pointer->description).find("Ethernet") != std::string::npos) {
+            device = current_dev_pointer->name;
+            flag = true;
+            break;
+        }
+        else if (platform_id == PlatformID::MACOS && std::string(current_dev_pointer->name) == "en0") {
             device = current_dev_pointer->name;
             flag = true;
             break;
         }
         std::cout << "current dev: " << current_dev_pointer->name << std::endl;
-        std::cout << current_dev_pointer->description << std::endl;
+        if (if_pcap_dev_desc_exist(*current_dev_pointer)) std::cout << "description:" << current_dev_pointer->description << std::endl;
         current_dev_pointer = current_dev_pointer -> next;
     }
     pcap_freealldevs(head_dev_pointer);
@@ -315,7 +329,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& device) {
         std::string command_output_string;
         std::string command = R"(ipconfig /all | findstr /C:"Default Gateway")";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
+        std::unique_ptr<FILE, decltype(&close_pipe)> stream(open_pipe(command.c_str(), "r"), close_pipe);
         if (stream == nullptr) {
             std::cerr << "popen() failed!" << std::endl;
             return std::unordered_set<std::string>{};
@@ -339,7 +353,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& device) {
         std::string command_output_string;
         std::string command = "ipconfig getpacket " + device + " | grep router";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
+        std::unique_ptr<FILE, decltype(&close_pipe)> stream(open_pipe(command.c_str(), "r"), close_pipe);
         if (stream == nullptr) { // equivalent to stream.get() == nullptr
             std::cerr << "popen() failed" << std::endl;
             return std::unordered_set<std::string>{};
@@ -384,10 +398,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& device) {
         return std::unordered_set<std::string>{};
 
     }
-    if (platform_id == PlatformID::LINUX) {}
-    else {
-
-    }
+    std::cerr << "Unsupported Platform" << std::endl;
     return std::unordered_set<std::string>(0);
 }
 
@@ -397,7 +408,7 @@ long long get_dhcp_lease_time(const std::string& device) {
         std::string command_output_string;
         std::string command = R"(ipconfig /all | findstr /C:"DHCP Enabled" /C:"Lease Obtained" /C:"Lease Expires")";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
+        std::unique_ptr<FILE, decltype(&close_pipe)> stream(open_pipe(command.c_str(), "r"), close_pipe);
         if (stream == nullptr) {
             std::cerr << "popen() failed!" << std::endl;
             return -1;
@@ -484,7 +495,7 @@ long long get_dhcp_lease_time(const std::string& device) {
         std::string command_output_string;
         std::string command = "ipconfig getpacket " + device + " | grep lease_time";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
+        std::unique_ptr<FILE, decltype(&close_pipe)> stream(open_pipe(command.c_str(), "r"), close_pipe);
         if (stream == nullptr) { // equivalent to stream.get() == nullptr
             std::cerr << "popen() failed" << std::endl;
             return -1;
@@ -523,12 +534,7 @@ long long get_dhcp_lease_time(const std::string& device) {
         std::cerr << "unknown dhcp lease time type (e.g. uint32)" << std::endl;
         return -1;
     }
-    if (platform_id == PlatformID::LINUX) {
-
-    }
-    else {
-        // implicitly means that platform_id = PlatformID::UNKNOWN;
-    }
+    std::cerr << "Unsupported Platform" << std::endl;
     return -1;
 }
 
