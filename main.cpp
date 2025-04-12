@@ -104,14 +104,17 @@ int main() {
         return 1;
     }
 
+    std::string device;
     bool flag = false;
     current_dev_pointer = head_dev_pointer;
     while (current_dev_pointer != nullptr) {
-        if (std::string(current_dev_pointer->name) == "en0") {
+        if (std::string(current_dev_pointer->description).find("Ethernet") != std::string::npos) {
+            device = current_dev_pointer->name;
             flag = true;
             break;
         }
         std::cout << "current dev: " << current_dev_pointer->name << std::endl;
+        std::cout << current_dev_pointer->description << std::endl;
         current_dev_pointer = current_dev_pointer -> next;
     }
     pcap_freealldevs(head_dev_pointer);
@@ -121,8 +124,6 @@ int main() {
         std::cerr << "No en0 found" << std::endl;
         return 1;
     }
-
-    std::string device = "en0";
 
     pcap_t *pcap_handle = pcap_create(device.c_str(), error_buf);
     if (pcap_handle == nullptr) {
@@ -314,7 +315,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& device) {
         std::string command_output_string;
         std::string command = R"(ipconfig /all | findstr /C:"Default Gateway")";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
         if (stream == nullptr) {
             std::cerr << "popen() failed!" << std::endl;
             return std::unordered_set<std::string>{};
@@ -338,7 +339,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& device) {
         std::string command_output_string;
         std::string command = "ipconfig getpacket " + device + " | grep router";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
         if (stream == nullptr) { // equivalent to stream.get() == nullptr
             std::cerr << "popen() failed" << std::endl;
             return std::unordered_set<std::string>{};
@@ -396,7 +397,7 @@ long long get_dhcp_lease_time(const std::string& device) {
         std::string command_output_string;
         std::string command = R"(ipconfig /all | findstr /C:"DHCP Enabled" /C:"Lease Obtained" /C:"Lease Expires")";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
         if (stream == nullptr) {
             std::cerr << "popen() failed!" << std::endl;
             return -1;
@@ -453,7 +454,7 @@ long long get_dhcp_lease_time(const std::string& device) {
 
         start_time_info.tm_mday = std::stoi(start_time_data_vector[1]);
         start_time_info.tm_mon = months[start_time_data_vector[2]];
-        start_time_info.tm_year = std::stoi(start_time_data_vector[3]);
+        start_time_info.tm_year = std::stoi(start_time_data_vector[3]) - 1900;
         start_time_info.tm_hour = std::stoi(start_time_data_vector[4]);
         start_time_info.tm_min = std::stoi(start_time_data_vector[5]);
         start_time_info.tm_sec = std::stoi(start_time_data_vector[6]);
@@ -464,7 +465,7 @@ long long get_dhcp_lease_time(const std::string& device) {
 
         end_time_info.tm_mday = std::stoi(end_time_data_vector[1]);
         end_time_info.tm_mon = months[end_time_data_vector[2]];
-        end_time_info.tm_year = std::stoi(end_time_data_vector[3]);
+        end_time_info.tm_year = std::stoi(end_time_data_vector[3]) - 1900;
         end_time_info.tm_hour = std::stoi(end_time_data_vector[4]);
         end_time_info.tm_min = std::stoi(end_time_data_vector[5]);
         end_time_info.tm_sec = std::stoi(end_time_data_vector[6]);
@@ -483,7 +484,7 @@ long long get_dhcp_lease_time(const std::string& device) {
         std::string command_output_string;
         std::string command = "ipconfig getpacket " + device + " | grep lease_time";
         std::cout << "running command: " << command << std::endl;
-        std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
+        std::unique_ptr<FILE, decltype(&_pclose)> stream(_popen(command.c_str(), "r"), _pclose);
         if (stream == nullptr) { // equivalent to stream.get() == nullptr
             std::cerr << "popen() failed" << std::endl;
             return -1;
