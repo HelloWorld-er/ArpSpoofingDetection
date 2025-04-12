@@ -13,6 +13,7 @@
 #include <unordered_set> // std::unordered_set
 #include <unordered_map> // std::unordered_map
 
+#include "ether_structure.h"
 
 enum class PlatformID {
     WINDOWS,
@@ -31,11 +32,12 @@ std::ostream& operator<<(std::ostream& os, PlatformID platform_id) {
 }
 
 #if defined(_WIN32) || defined(_WIN64)
+#include <winsock2.h>
 #include <pcap/pcap.h>
 #include <pcap/dlt.h>
 PlatformID platform_id = PlatformID::WINDOWS;
 #elif defined(__APPLE__) || defined(__MACH__)
-#include <netinet/if_ether.h> // decode the packets
+#include <arpa/inet.h>
 #include <pcap/pcap.h> // pcap
 #include <pcap/dlt.h> // macro defined DLTxxx
 PlatformID platform_id = PlatformID::MACOS;
@@ -178,15 +180,15 @@ int main() {
         // ethernet header + payload (in this case, arp header)
         std::cout << "Packet captured: Length = " << header->len << std::endl;
 
-        const auto *packet_header = reinterpret_cast<const ether_header *>(packet);
+        const auto *packet_header = reinterpret_cast<const ethernet_header *>(packet);
         if (ntohs(packet_header->ether_type) != ETHERTYPE_ARP) return;
 
-        const auto *arp_header = reinterpret_cast<const ether_arp *>(packet + sizeof(ether_header)); // move the pointer to the arp header
+        const auto *arp_header = reinterpret_cast<const ether_arp_header *>(packet + sizeof(ethernet_header)); // move the pointer to the arp header
 
-        std::string sender_mac = bytes_to_hex(arp_header->arp_sha, ETHER_ADDR_LEN, ":");
-        std::string sender_ip = bytes_to_int(arp_header->arp_spa, 4, ".");
-        std::string target_mac = bytes_to_hex(arp_header->arp_tha, ETHER_ADDR_LEN, ":");
-        std::string target_ip = bytes_to_int(arp_header->arp_tpa, 4, ".");
+        std::string sender_mac = bytes_to_hex(arp_header->sender_mac, 6, ":");
+        std::string sender_ip = bytes_to_int(arp_header->sender_ip, 4, ".");
+        std::string target_mac = bytes_to_hex(arp_header->target_mac, 6, ":");
+        std::string target_ip = bytes_to_int(arp_header->target_ip, 4, ".");
 
         std::cout << "ARP sender MAC address: " << sender_mac << std::endl;
         std::cout << "ARP sender Protocol address (IP): " << sender_ip << std::endl;

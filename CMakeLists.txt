@@ -4,7 +4,10 @@ project(ArpSpoofingDetection)
 set(CMAKE_CXX_STANDARD 14)
 
 add_executable(MainExecutable
-    main.cpp)
+    main.cpp
+)
+
+target_include_directories(MainExecutable PUBLIC include/ether_structure)
 
 # Find and link libpcap
 if (APPLE)
