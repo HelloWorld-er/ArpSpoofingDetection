@@ -31,6 +31,8 @@ std::ostream& operator<<(std::ostream& os, PlatformID platform_id) {
 }
 
 #if defined(_WIN32) || defined(_WIN64)
+#include <pcap/pcap.h>
+#include <pcap/dlt.h>
 PlatformID platform_id = PlatformID::WINDOWS;
 #elif defined(__APPLE__) || defined(__MACH__)
 #include <netinet/if_ether.h> // decode the packets
@@ -118,9 +120,9 @@ int main() {
         return 1;
     }
 
-    std::string interface = "en0";
+    std::string device = "en0";
 
-    pcap_t *pcap_handle = pcap_create(interface.c_str(), error_buf);
+    pcap_t *pcap_handle = pcap_create(device.c_str(), error_buf);
     if (pcap_handle == nullptr) {
         std::cerr << error_buf << std::endl;
         pcap_close(pcap_handle);
@@ -159,10 +161,10 @@ int main() {
     }
 
     // get routers' ips
-    router_ip_addrs = get_router_ips(interface);
+    router_ip_addrs = get_router_ips(device);
 
     // get DHCP lease time
-    dhcp_lease_time = get_dhcp_lease_time(interface);
+    dhcp_lease_time = get_dhcp_lease_time(device);
     if (dhcp_lease_time < 0) {
         pcap_close(pcap_handle);
         return 1;
@@ -304,7 +306,7 @@ std::vector<std::string> split(const std::string &s, std::string delims) {
 }
 
 
-std::unordered_set<std::string> get_router_ips(const std::string& interface) {
+std::unordered_set<std::string> get_router_ips(const std::string& device) {
     if (platform_id == PlatformID::WINDOWS) {
         std::array<char, 128> buffer = {};
         std::string command_output_string;
@@ -332,7 +334,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& interface) {
     if (platform_id == PlatformID::MACOS) {
         std::array<char, 128> buffer = {};
         std::string command_output_string;
-        std::string command = "ipconfig getpacket " + interface + " | grep router";
+        std::string command = "ipconfig getpacket " + device + " | grep router";
         std::cout << "running command: " << command << std::endl;
         std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
         if (stream == nullptr) { // equivalent to stream.get() == nullptr
@@ -386,7 +388,7 @@ std::unordered_set<std::string> get_router_ips(const std::string& interface) {
     return std::unordered_set<std::string>(0);
 }
 
-long long get_dhcp_lease_time(const std::string& interface) {
+long long get_dhcp_lease_time(const std::string& device) {
     if (platform_id == PlatformID::WINDOWS) {
         std::array<char, 128> buffer = {};
         std::string command_output_string;
@@ -477,7 +479,7 @@ long long get_dhcp_lease_time(const std::string& interface) {
     if (platform_id == PlatformID::MACOS) {
         std::array<char, 128> buffer = {};
         std::string command_output_string;
-        std::string command = "ipconfig getpacket " + interface + " | grep lease_time";
+        std::string command = "ipconfig getpacket " + device + " | grep lease_time";
         std::cout << "running command: " << command << std::endl;
         std::unique_ptr<FILE, decltype(&pclose)> stream(popen(command.c_str(), "r"), pclose);
         if (stream == nullptr) { // equivalent to stream.get() == nullptr
