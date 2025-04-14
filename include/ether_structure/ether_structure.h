@@ -1,7 +1,7 @@
 //
 // Created by Yimin Liu on 12/4/2025.
 //
-
+#pragma once
 
 
 #ifndef ARP_PARSING_SUPPORT_H

@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 14)
 
 add_executable(MainExecutable
     main.cpp
+        ArpSpoofingDetector.cpp
+        ArpSpoofingDetector.h
 )
 
 target_include_directories(MainExecutable PUBLIC include/ether_structure)
