@@ -6,6 +6,7 @@
 #define UI_H
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_vulkan.h"
 
@@ -53,7 +54,7 @@ namespace UI {
      public:
           GLFWLayer();
           ~GLFWLayer();
-          static GLFWwindow* CreateWindow(int, int);
+          static GLFWwindow* CreateWindow(int hint, int value, const std::string& window_title);
           static void SetErrorCallback();
           static void GLFWInit();
           static void glfw_error_callback(int error, const char* discription);
@@ -73,7 +74,7 @@ namespace UI {
      public:
           ImGuiLayer();
           ~ImGuiLayer();
-          static GLFWwindow* CreateWindowWithVulkanContext();
+          static GLFWwindow* CreateWindowWithVulkanContext(const std::string& window_title);
           static void SetupImGuiContext();
           static void SetupImGuiStyle();
           static void SetupRendererBackend(GLFWwindow*& window, ImGui_ImplVulkanH_Window*& wd);
@@ -87,15 +88,17 @@ namespace UI {
      public:
           UILayer();
           ~UILayer();
+          void SetWindowTitle(const std::string& window_title);
+          void SetClearColor(const ImVec4& clear_color);
           void SetFontFile(const std::string& filename);
           void SetFontSize(float size);
           void SetupUI();
-          void StartMainLoop();
           bool IfWindowShouldClose() const;
           bool IfSkipMainLoop() const;
           void StartOfMainLoop();
           void EndOfMainLoop();
      private:
+          std::string m_window_title;
           GLFWwindow* m_window{};
           VkSurfaceKHR m_surface{};
           VkResult m_err{};
@@ -105,7 +108,6 @@ namespace UI {
           bool m_skip_loop = false;
 
           // custom
-          bool m_show_demo_window = true;
           ImVec4 m_clear_color = ImVec4(0.45f, 0.55f, 0.60f, 1.00f);
      };
 }

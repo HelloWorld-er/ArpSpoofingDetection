@@ -14,9 +14,9 @@ namespace UI {
 
     GLFWLayer::~GLFWLayer() = default;
 
-    GLFWwindow* GLFWLayer::CreateWindow(int hint, int value) {
+    GLFWwindow* GLFWLayer::CreateWindow(int hint, int value, const std::string& window_title) {
         glfwWindowHint(hint, value);
-        return glfwCreateWindow(1280, 720, "Dear ImGui GLFW+Vulkan example", nullptr, nullptr);
+        return glfwCreateWindow(1280, 720, window_title.c_str(), nullptr, nullptr);
     }
 
     void GLFWLayer::SetErrorCallback() {
@@ -226,8 +226,8 @@ namespace UI {
 
     ImGuiLayer::~ImGuiLayer() = default;
 
-    GLFWwindow* ImGuiLayer::CreateWindowWithVulkanContext() {
-        GLFWwindow* window = GLFWLayer::CreateWindow(GLFW_CLIENT_API, GLFW_NO_API);
+    GLFWwindow* ImGuiLayer::CreateWindowWithVulkanContext(const std::string& window_title) {
+        GLFWwindow* window = GLFWLayer::CreateWindow(GLFW_CLIENT_API, GLFW_NO_API, window_title);
         if (!glfwVulkanSupported()) {
             printf("GLFW: Vulkan Not Supported\n");
             std::exit(1);
@@ -399,6 +399,14 @@ namespace UI {
         glfwTerminate();
     }
 
+    void UILayer::SetWindowTitle(const std::string &window_title) {
+        m_window_title = window_title;
+    }
+
+    void UILayer::SetClearColor(const ImVec4 &clear_color) {
+        m_clear_color = clear_color;
+    }
+
     void UILayer::SetFontFile(const std::string &filename) {
         m_filename = filename;
         ImGuiLayer::LoadFonts(m_filename.c_str(), m_font_size_pixel);
@@ -414,7 +422,7 @@ namespace UI {
         GLFWLayer::GLFWInit();
 
         // create window surface
-        m_window = ImGuiLayer::CreateWindowWithVulkanContext();
+        m_window = ImGuiLayer::CreateWindowWithVulkanContext(m_window_title);
         m_err = glfwCreateWindowSurface(g_Instance, m_window, g_Allocator, &m_surface);
         VulkanLayer::check_vk_result(m_err);
 
@@ -432,32 +440,6 @@ namespace UI {
 
         // setup ImGui Platform/Renderer backends
         ImGuiLayer::SetupRendererBackend(m_window, m_wd);
-    }
-
-    void UILayer::StartMainLoop() {
-        while (!glfwWindowShouldClose(m_window))
-        {
-
-
-            // 1. Show the big demo window (Most of the sample code is in ImGui::ShowDemoWindow()! You can browse its code to learn more about Dear ImGui!).
-            if (m_show_demo_window)
-                ImGui::ShowDemoWindow(&m_show_demo_window);
-
-            // 2. Show a simple window that we create ourselves. We use a Begin/End pair to create a named window.
-            {
-                const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-                ImGui::SetNextWindowPos(main_viewport->WorkPos);
-                ImGui::SetNextWindowSize(main_viewport->WorkSize);
-                bool welcome_page_active = true;
-                ImGui::Begin("Welcome Page", &welcome_page_active, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize);
-                ImGui::PushItemWidth(ImGui::GetWindowWidth());
-                ImGui::Text("%lf %lf", ImGui::GetWindowWidth(), ImGui::GetWindowHeight());
-                ImGui::Text("Hello World!");
-                ImGui::End();
-            }
-
-
-        }
     }
 
     bool UILayer::IfWindowShouldClose() const {
