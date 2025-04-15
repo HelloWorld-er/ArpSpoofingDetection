@@ -53,13 +53,13 @@ namespace ArpSpoofingDetect {
     static auto& close_pipe = pclose;
 #endif
 
-    template <typename Detector>
+
     class PacketCapturer {
     public:
         PacketCapturer();
         ~PacketCapturer();
 
-        void SetMessageHandleFn(void(Detector::*message_handle_fn)(const std::string& new_message, const bool& raise_error, bool end_line), Detector* detector);
+        void SetMessageHandleFn(void(*message_handle_fn)(const std::string& new_message, const bool& raise_error, bool end_line));
 
         void InitCapturer();
         bool CheckGeneralSignal(int signal, int success_signal, const std::string &prefix, pcap_t* pcap_handle) const;
@@ -135,9 +135,9 @@ namespace ArpSpoofingDetect {
 
     class ArpSpoofingDetector {
     public:
-        PacketCapturer<ArpSpoofingDetector> arp_pcap_capturer;
+        PacketCapturer arp_pcap_capturer;
 
-        ArpSpoofingDetector();
+        ArpSpoofingDetector(void(*MessageHandler)(const std::string &new_message, const bool& raise_error, bool end_line), bool(*IfStopCaptureLoopFn)());
         ~ArpSpoofingDetector();
         static uint64_t hex_in_str_to_uint64(const std::string &hex);
         static uint32_t hex_in_str_to_uint32(const std::string &hex);
@@ -151,18 +151,12 @@ namespace ArpSpoofingDetect {
         void StartCapture();
 
         void CaptureLoop(u_char *args, const pcap_pkthdr *header, const u_char *packet);
-        void AddMessage(const std::string &new_message, const bool& raise_error, bool end_line);
-        const std::vector<std::string>& GetMessages();
-        void ClearMessages();
 
-// #if defined(_WIN32) || defined(_WIN64)
-//         static constexpr auto& open_pipe = _popen;
-//         static constexpr auto& close_pipe = _pclose;
-// #elif defined(__APPLE__) || defined(__MACH__)
-//         static constexpr auto& open_pipe = popen;
-//         static constexpr auto& close_pipe = pclose;
-// #endif
     private:
+        std::function<bool()> IfStopCaptureLoop;
+
+        std::function<void(const std::string&, const bool&, bool)> AddMessage;
+
         std::string m_device = "en0";
         std::vector<std::string> m_messages = {""};
         std::unordered_set<std::string> m_RouterIPs {};

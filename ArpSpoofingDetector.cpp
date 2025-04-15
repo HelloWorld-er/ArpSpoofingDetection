@@ -36,34 +36,32 @@ std::vector<std::string> split(const std::string &s, std::string delims) {
     return returned_vector;
 }
 
-template <typename Detector>
-ArpSpoofingDetect::PacketCapturer<Detector>::PacketCapturer() {
+
+ArpSpoofingDetect::PacketCapturer::PacketCapturer() {
 }
 
-template <typename Detector>
-ArpSpoofingDetect::PacketCapturer<Detector>::~PacketCapturer() {
+
+ArpSpoofingDetect::PacketCapturer::~PacketCapturer() {
     if (m_pcap_handle != nullptr) {
         pcap_close(m_pcap_handle);
     }
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetMessageHandleFn(void(Detector::*message_handle_fn)(const std::string& new_message, const bool& raise_error, bool end_line), Detector* detector) {
-    AddMessage = [message_handle_fn, detector](const std::string& new_message, const bool& raise_error, bool end_line = true) {
-        (detector->*message_handle_fn)(new_message, raise_error, end_line);
-    };
+
+void ArpSpoofingDetect::PacketCapturer::SetMessageHandleFn(void(*message_handle_fn)(const std::string& new_message, const bool& raise_error, bool end_line)) {
+    AddMessage = message_handle_fn;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::InitCapturer() {
+
+void ArpSpoofingDetect::PacketCapturer::InitCapturer() {
     const int signal = pcap_init(PCAP_CHAR_ENC_LOCAL, m_error_buf);
     if (signal == PCAP_ERROR) {
         AddMessage("[ERROR] " + std::string(m_error_buf), true, true);
     }
 }
 
-template <typename Detector>
-bool ArpSpoofingDetect::PacketCapturer<Detector>::CheckGeneralSignal(int signal, int success_signal, const std::string &prefix, pcap_t *pcap_handle) const {
+
+bool ArpSpoofingDetect::PacketCapturer::CheckGeneralSignal(int signal, int success_signal, const std::string &prefix, pcap_t *pcap_handle) const {
     if (signal == success_signal) {
         AddMessage(prefix + "Success", false, true);
         return true;
@@ -72,13 +70,13 @@ bool ArpSpoofingDetect::PacketCapturer<Detector>::CheckGeneralSignal(int signal,
     return false;
 }
 
-template <typename Detector>
-bool ArpSpoofingDetect::PacketCapturer<Detector>::IfPcapDevDescExist(pcap_if_t device) {
+
+bool ArpSpoofingDetect::PacketCapturer::IfPcapDevDescExist(pcap_if_t device) {
     return device.description != nullptr;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::CheckAvailableDevices() {
+
+void ArpSpoofingDetect::PacketCapturer::CheckAvailableDevices() {
     pcap_if_t *head_dev_pointer;
     const int signal = pcap_findalldevs(&head_dev_pointer, m_error_buf);
     if (signal == PCAP_ERROR) {
@@ -97,8 +95,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::CheckAvailableDevices() {
     pcap_freealldevs(head_dev_pointer);
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::GetDevice() {
+
+void ArpSpoofingDetect::PacketCapturer::GetDevice() {
 
     pcap_if_t *head_dev_pointer;
     const int signal = pcap_findalldevs(&head_dev_pointer, m_error_buf);
@@ -135,8 +133,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::GetDevice() {
     }
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::InitPcapHandle() {
+
+void ArpSpoofingDetect::PacketCapturer::InitPcapHandle() {
     m_pcap_handle = pcap_create(m_device.c_str(), m_error_buf);
     if (m_pcap_handle == nullptr) {
         pcap_close(m_pcap_handle);
@@ -150,8 +148,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::InitPcapHandle() {
     pcap_set_immediate_mode(m_pcap_handle, m_immediate_mode);
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::ActivateCapturer() {
+
+void ArpSpoofingDetect::PacketCapturer::ActivateCapturer() {
     if (m_pcap_handle == nullptr) AddMessage("[ERROR] pcap handle is not initialized, cannot activate", true, true);
     int activation_status = pcap_activate(m_pcap_handle);
     if (!CheckGeneralSignal(activation_status, 0, "Activation: ", m_pcap_handle)) {
@@ -161,8 +159,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::ActivateCapturer() {
     }
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::CheckDatalink() {
+
+void ArpSpoofingDetect::PacketCapturer::CheckDatalink() {
     int signal = pcap_datalink(m_pcap_handle);
     if (!CheckGeneralSignal(signal, m_datalink, "Datalink: ", m_pcap_handle)) {
         pcap_close(m_pcap_handle);
@@ -171,8 +169,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::CheckDatalink() {
     }
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetupFilter() {
+
+void ArpSpoofingDetect::PacketCapturer::SetupFilter() {
     auto *filter_pointer = new bpf_program();
     int signal = pcap_compile(m_pcap_handle, filter_pointer, m_filter_expression.c_str(), 1, PCAP_NETMASK_UNKNOWN);
     if (!CheckGeneralSignal(signal, 0, "pcap compile filter: ", m_pcap_handle)) {
@@ -191,8 +189,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::SetupFilter() {
     }
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetupCapturer() {
+
+void ArpSpoofingDetect::PacketCapturer::SetupCapturer() {
     InitCapturer();
     GetDevice();
     InitPcapHandle();
@@ -201,8 +199,8 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::SetupCapturer() {
     SetupFilter();
 }
 
-template<typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetupCaptureLoop(int packet_number, void (*pcap_handler)(u_char *, const pcap_pkthdr *,
+
+void ArpSpoofingDetect::PacketCapturer::SetupCaptureLoop(int packet_number, void (*pcap_handler)(u_char *, const pcap_pkthdr *,
                  const u_char *), u_char* args_ptr) {
     m_packet_number = packet_number;
     m_pcap_handler = pcap_handler;
@@ -210,49 +208,51 @@ void ArpSpoofingDetect::PacketCapturer<Detector>::SetupCaptureLoop(int packet_nu
 
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::StartCaptureLoop() {
+
+void ArpSpoofingDetect::PacketCapturer::StartCaptureLoop() {
     pcap_loop(m_pcap_handle, m_packet_number, m_pcap_handler, m_args_ptr);
 }
 
-template<typename Detector>
-std::string ArpSpoofingDetect::PacketCapturer<Detector>::GetDeviceName() const {
+
+std::string ArpSpoofingDetect::PacketCapturer::GetDeviceName() const {
     return m_device;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetTargetDeviceKeyword(const char *target_device_keyword) {
+
+void ArpSpoofingDetect::PacketCapturer::SetTargetDeviceKeyword(const char *target_device_keyword) {
     m_target_device_keyword = target_device_keyword;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetTargetDatalink(int target_datalink) {
+
+void ArpSpoofingDetect::PacketCapturer::SetTargetDatalink(int target_datalink) {
     m_datalink = target_datalink;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetFilterExpression(const char* filter_expression) {
+
+void ArpSpoofingDetect::PacketCapturer::SetFilterExpression(const char* filter_expression) {
     m_filter_expression = filter_expression;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetSnapLen(int snaplen) {
+
+void ArpSpoofingDetect::PacketCapturer::SetSnapLen(int snaplen) {
     m_snaplen = snaplen;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetPromiscMode(bool active) {
+
+void ArpSpoofingDetect::PacketCapturer::SetPromiscMode(bool active) {
     m_promisc_mode = active;
 }
 
-template <typename Detector>
-void ArpSpoofingDetect::PacketCapturer<Detector>::SetImmediateMode(bool active) {
+
+void ArpSpoofingDetect::PacketCapturer::SetImmediateMode(bool active) {
     m_immediate_mode = active;
 }
 
-ArpSpoofingDetect::ArpSpoofingDetector::ArpSpoofingDetector() {
-    // arp_pcap_capturer.SetMessageHandleFn(std::bind(&AddMessage, this, std::placeholders::_1, std::placeholders::_2, std::placeholders::_3), this);
-    arp_pcap_capturer.SetMessageHandleFn(&ArpSpoofingDetector::AddMessage, this);
+
+ArpSpoofingDetect::ArpSpoofingDetector::ArpSpoofingDetector(void(*MessageHandler)(const std::string &new_message, const bool& raise_error, bool end_line), bool(*IfStopCaptureLoopFn)()) {
+    IfStopCaptureLoop = IfStopCaptureLoopFn;
+    AddMessage = MessageHandler;
+    arp_pcap_capturer.SetMessageHandleFn(MessageHandler);
 
 #if defined(_WIN32) || defined(_WIN64)
     arp_pcap_capturer.SetTargetDeviceKeyword("Ethernet");
@@ -266,8 +266,10 @@ ArpSpoofingDetect::ArpSpoofingDetector::ArpSpoofingDetector() {
     arp_pcap_capturer.SetFilterExpression("arp");
 }
 
+
 ArpSpoofingDetect::ArpSpoofingDetector::~ArpSpoofingDetector() {
 }
+
 
 uint64_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint64(const std::string &hex) {
     uint64_t hex_uint64;
@@ -277,6 +279,7 @@ uint64_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint64(const std:
     return hex_uint64;
 }
 
+
 uint32_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint32(const std::string &hex) {
     uint32_t hex_uint32;
     std::stringstream uint32_stream;
@@ -284,6 +287,7 @@ uint32_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint32(const std:
     uint32_stream >> hex_uint32;
     return hex_uint32;
 }
+
 
 uint16_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint16(const std::string &hex) {
     uint16_t hex_uint16;
@@ -293,6 +297,7 @@ uint16_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint16(const std:
     return hex_uint16;
 }
 
+
 uint8_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint8(const std::string &hex) {
     uint8_t hex_uint8;
     std::stringstream uint8_stream;
@@ -300,6 +305,7 @@ uint8_t ArpSpoofingDetect::ArpSpoofingDetector::hex_in_str_to_uint8(const std::s
     uint8_stream >> hex_uint8;
     return hex_uint8;
 }
+
 
 std::string ArpSpoofingDetect::ArpSpoofingDetector::bytes_to_int(const u_char *bytes, size_t len, const char *seperator) {
     std::string bytes_in_int;
@@ -310,6 +316,7 @@ std::string ArpSpoofingDetect::ArpSpoofingDetector::bytes_to_int(const u_char *b
     return bytes_in_int;
 }
 
+
 std::string ArpSpoofingDetect::ArpSpoofingDetector::bytes_to_hex(const u_char *bytes, size_t len, const char *seperator) {
     std::ostringstream hex_stream;
     for (size_t i = 0; i < len; i ++) {
@@ -318,6 +325,7 @@ std::string ArpSpoofingDetect::ArpSpoofingDetector::bytes_to_hex(const u_char *b
     }
     return hex_stream.str();
 }
+
 
 void ArpSpoofingDetect::ArpSpoofingDetector::GetRouterIPs() {
 #if defined(_WIN32) || defined(_WIN64)
@@ -393,6 +401,7 @@ void ArpSpoofingDetect::ArpSpoofingDetector::GetRouterIPs() {
 #endif
     AddMessage("Unsupported Platform", true, true);
 }
+
 
 void ArpSpoofingDetect::ArpSpoofingDetector::SetupDHCPLeaseTime() {
 #if defined(_WIN32) || defined(_WIN64)
@@ -540,11 +549,13 @@ void ArpSpoofingDetect::ArpSpoofingDetector::SetupDHCPLeaseTime() {
     AddMessage("Unsupported Platform", true, true);
 }
 
+
 void ArpSpoofingDetect::ArpSpoofingDetector::SetupDetector() {
     arp_pcap_capturer.SetupCapturer();
     GetRouterIPs();
     SetupDHCPLeaseTime();
 }
+
 
 void ArpSpoofingDetect::ArpSpoofingDetector::StartCapture() {
     arp_pcap_capturer.SetupCaptureLoop(0, [](u_char *args, const pcap_pkthdr *header, const u_char *packet) {
@@ -554,10 +565,11 @@ void ArpSpoofingDetect::ArpSpoofingDetector::StartCapture() {
     arp_pcap_capturer.StartCaptureLoop();
 }
 
+
 void ArpSpoofingDetect::ArpSpoofingDetector::CaptureLoop(u_char *args, const pcap_pkthdr *header, const u_char *packet) {
     // packet
     // ethernet header + payload (in this case, arp header)
-    std::cout << "Packet captured: Length = " << header->len << std::endl;
+    AddMessage("Packet captured: Length = " + std::to_string(header->len), false, true);
 
     const auto *packet_header = reinterpret_cast<const ethernet_header *>(packet);
     if (ntohs(packet_header->ether_type) != ETHERTYPE_ARP) return;
@@ -569,11 +581,11 @@ void ArpSpoofingDetect::ArpSpoofingDetector::CaptureLoop(u_char *args, const pca
     std::string target_mac = bytes_to_hex(arp_header->target_mac, 6, ":");
     std::string target_ip = bytes_to_int(arp_header->target_ip, 4, ".");
 
-    std::cout << "ARP sender MAC address: " << sender_mac << std::endl;
-    std::cout << "ARP sender Protocol address (IP): " << sender_ip << std::endl;
-    std::cout << "ARP target MAC address: " << target_mac << std::endl;
-    std::cout << "ARP target Protocol address (IP): " << target_ip << std::endl;
-    std::cout << std::endl;
+    AddMessage("ARP sender MAC address: " + sender_mac, false, true);
+    AddMessage("ARP sender Protocol address (IP): " + sender_ip, false, true);
+    AddMessage("ARP target MAC address: " + target_mac, false, true);
+    AddMessage("ARP target Protocol address (IP): " + target_ip, false, true);
+    AddMessage("", false, true);
 
     std::time_t current_time = std::time(nullptr);
     // check sender mac-ip pair
@@ -626,20 +638,6 @@ void ArpSpoofingDetect::ArpSpoofingDetector::CaptureLoop(u_char *args, const pca
             }
         }
     }
-}
-
-void ArpSpoofingDetect::ArpSpoofingDetector::AddMessage(const std::string &new_message, const bool& raise_error, bool end_line) {
-    m_messages[m_messages.size() - 1] += new_message;
-    if (end_line) m_messages.emplace_back("");
-    if (raise_error) {
-        throw std::runtime_error(new_message);
-    }
-}
-
-const std::vector<std::string> & ArpSpoofingDetect::ArpSpoofingDetector::GetMessages() {
-    return m_messages;
-}
-
-void ArpSpoofingDetect::ArpSpoofingDetector::ClearMessages() {
-    m_messages.clear();
+    static auto* detector = reinterpret_cast<ArpSpoofingDetector*>(args);
+    if ((detector->IfStopCaptureLoop)()) throw std::runtime_error("Stop capture");
 }

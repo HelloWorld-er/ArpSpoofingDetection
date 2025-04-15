@@ -1,9 +1,88 @@
 #include <iostream>
 #include <thread>
+#include <mutex>
 
 #include "ArpSpoofingDetector.h"
 #include "UI.h"
 
+
+class SharedData {
+private:
+    std::vector<std::string> m_data {""};    // The shared resource
+    std::vector<std::string> m_setup_info {};
+    bool m_setup_detector = false;
+    bool m_stop_capture = true;
+
+    std::mutex mtx;           // The mutex protecting the shared resource
+public:
+    bool if_stop_capture() {
+        std::lock_guard<std::mutex> lock(mtx);
+        return m_stop_capture;
+    }
+    void start_capture() {
+        std::lock_guard<std::mutex> lock(mtx);
+        m_stop_capture = false;
+    }
+
+    void stop_capture() {
+        std::lock_guard<std::mutex> lock(mtx);
+        m_stop_capture = true;
+    }
+
+    void setup_detector_finish() {
+        std::lock_guard<std::mutex> lock(mtx);
+        m_setup_info = m_data;
+        m_data.clear();
+        m_data.emplace_back("");
+        m_setup_detector = true;
+    }
+
+    const std::vector<std::string>& get_setup_info() {
+        std::lock_guard<std::mutex> lock(mtx);
+        return m_setup_info;
+    }
+
+    bool if_setup_detector() {
+        std::lock_guard<std::mutex> lock(mtx);
+        return m_setup_detector;
+    }
+
+    void clear_messages() {
+        std::lock_guard<std::mutex> lock(mtx);
+        m_data.clear();
+        m_data.emplace_back("");
+    }
+    // Safely add data to the shared resource
+    void add_message(const std::string &new_message, const bool& raise_error, bool end_line) {
+        std::lock_guard<std::mutex> lock(mtx);
+        m_data[m_data.size() - 1] += new_message;
+        if (end_line) m_data.emplace_back("");
+        if (raise_error) {
+            throw std::runtime_error(new_message);
+        }
+    }
+
+    // Safely print the shared resource
+    const std::vector<std::string>& get_messages() {
+        std::lock_guard<std::mutex> lock(mtx);
+        return m_data;
+    }
+};
+
+SharedData sharedData;
+
+
+static UI::UILayer ui_layer;
+
+std::mutex mtx;
+bool g_error_occurred = false;
+
+static void HelpMarker(const char*);
+void open_welcome_page(bool* p_open);
+void open_capture_page(bool* p_open);
+void start_ui();
+void setup_ui();
+void start_capture();
 
 
 static void HelpMarker(const char* desc)
@@ -103,31 +182,56 @@ void open_welcome_page(bool* p_open) {
 
 void open_capture_page(bool* p_open) {
     static ImGuiWindowFlags flags;
+    static bool if_capture = false;
 
     if (ImGui::Begin("Capture Page", p_open, flags)) {
-        ImGui::Button("Start Capture");
-        ImGui::SameLine();
-        ImGui::Button("Stop Capture");
+        if (!if_capture && ImGui::Button("Start Capture")) {
+            if_capture = true;
+            sharedData.clear_messages();
+            sharedData.start_capture();
+            std::thread capture_loop(start_capture);
+            capture_loop.detach();
+        }
+        if (if_capture && ImGui::Button("Stop Capture")) {
+            sharedData.stop_capture();
+            if_capture = false;
+        }
         ImGui::Separator();
         ImGui::Text("Logs:");
+        if (sharedData.if_setup_detector()) {
+            for (auto& message: sharedData.get_setup_info()) {
+                ImGui::TextWrapped("%s", message.c_str());
+            }
+            ImGui::Separator();
+            for (auto& message: sharedData.get_messages()) {
+                ImGui::TextWrapped("%s", message.c_str());
+            }
+        }
+
+
+        ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+        ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+        if (g_error_occurred) {
+            ImGui::OpenPopup("Find an Error!");
+        }
+        if (ImGui::BeginPopupModal("Find an Error!", &g_error_occurred, ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("An error is found!");
+            for (auto& message: sharedData.get_messages()) {
+                ImGui::Text("%s", message.c_str());
+            }
+            ImGui::EndPopup();
+        }
     }
     ImGui::End();
 }
 
-int start_ui() {
+void start_ui() {
     static bool show_demo = true;
     static bool use_work_area = true;
     static bool show_welcome_page = true;
     static bool show_capture_page = true;
 
-    UI::UILayer ui_layer;
-    ui_layer.SetWindowTitle("Arp Spoofing Detector");
-    ui_layer.SetClearColor(ImVec4(0, 0, 0, 1));
-
-    ui_layer.SetupUI();
-    ImGui::StyleColorsLight();
-    ui_layer.SetFontFile("./fonts/DIN Alternate Bold.ttf");
-    ui_layer.SetFontSize(40.0f);
 
     while (!ui_layer.IfWindowShouldClose()) {
         ui_layer.StartOfMainLoop();
@@ -138,43 +242,60 @@ int start_ui() {
 
         // Create the DockSpace
         ImGui::DockSpaceOverViewport(viewport->ID, viewport, ImGuiDockNodeFlags_None);
-        ImGui::ShowDemoWindow(&show_demo);
+        // ImGui::ShowDemoWindow(&show_demo);
 
         // Set windows' positions
-            ImGui::SetNextWindowPos(use_work_area ? viewport->WorkPos : viewport->Pos, ImGuiCond_Once);
-            ImGui::SetNextWindowSize(use_work_area ? ImVec2(viewport->WorkSize.x/2, viewport->WorkSize.y) : ImVec2(viewport->Size.x/2, viewport->Size.y), ImGuiCond_Once);
+        ImGui::SetNextWindowPos(use_work_area ? viewport->WorkPos : viewport->Pos, ImGuiCond_Once);
+        ImGui::SetNextWindowSize(use_work_area ? ImVec2(viewport->WorkSize.x/2, viewport->WorkSize.y) : ImVec2(viewport->Size.x/2, viewport->Size.y), ImGuiCond_Once);
 
         // ImGui::ShowDemoWindow(&show_demo);
         // add components/windows above the main windows
-            open_welcome_page(&show_welcome_page);
+        open_welcome_page(&show_welcome_page);
 
-            ImGui::SetNextWindowPos(use_work_area
-                                        ? ImVec2(viewport->WorkPos.x + viewport->WorkSize.x / 2, viewport->WorkPos.y)
-                                        : ImVec2(viewport->Pos.x + viewport->Size.x / 2, viewport->Pos.y), ImGuiCond_Once);
-            ImGui::SetNextWindowSize(use_work_area ? ImVec2(viewport->WorkSize.x/2, viewport->WorkSize.y) : ImVec2(viewport->Size.x/2, viewport->Size.y), ImGuiCond_Once);
+        ImGui::SetNextWindowPos(use_work_area
+                                    ? ImVec2(viewport->WorkPos.x + viewport->WorkSize.x / 2, viewport->WorkPos.y)
+                                    : ImVec2(viewport->Pos.x + viewport->Size.x / 2, viewport->Pos.y), ImGuiCond_Once);
+        ImGui::SetNextWindowSize(use_work_area ? ImVec2(viewport->WorkSize.x/2, viewport->WorkSize.y) : ImVec2(viewport->Size.x/2, viewport->Size.y), ImGuiCond_Once);
 
-            open_capture_page(&show_capture_page);
+        open_capture_page(&show_capture_page);
 
         ui_layer.EndOfMainLoop();
     }
+}
 
-    return 0;
+void setup_ui() {
+    ui_layer.SetWindowTitle("Arp Spoofing Detector");
+    ui_layer.SetClearColor(ImVec4(0, 0, 0, 1));
+
+    ui_layer.SetupUI();
+    ImGui::StyleColorsLight();
+    ui_layer.SetFontFile("./fonts/DIN Alternate Bold.ttf");
+    ui_layer.SetFontSize(40.0f);
+}
+
+
+void start_capture() {
+    ArpSpoofingDetect::ArpSpoofingDetector arp_spoofing_detector([](const std::string &new_message, const bool& raise_error, bool end_line) {
+    sharedData.add_message(new_message, raise_error, end_line);
+}, []()-> bool {
+    return sharedData.if_stop_capture();
+});
+    try {
+        arp_spoofing_detector.SetupDetector();
+    } catch (...) {
+        g_error_occurred = true;
+    }
+    sharedData.setup_detector_finish();
+    try {
+        arp_spoofing_detector.StartCapture();
+    } catch (std::runtime_error& exception_info) {
+        std::cout << exception_info.what() << std::endl;
+    }
 }
 
 
 int main() {
-    ArpSpoofingDetect::ArpSpoofingDetector arp_spoofing_detector;
-    try {
-        arp_spoofing_detector.SetupDetector();
-        for (auto& message: arp_spoofing_detector.GetMessages()) {
-            std::cout << message << std::endl;
-        }
-        arp_spoofing_detector.ClearMessages();
-        arp_spoofing_detector.StartCapture();
-    } catch (...) {
-        for (auto& message: arp_spoofing_detector.GetMessages()) {
-            std::cout << message << std::endl;
-        }
-    }
+    setup_ui();
+    start_ui();
     return 0;
 }
