@@ -385,19 +385,7 @@ namespace UI {
 
     UILayer::UILayer() = default;
 
-    UILayer::~UILayer() {
-        m_err = vkDeviceWaitIdle(g_Device);
-        VulkanLayer::check_vk_result(m_err);
-        ImGui_ImplVulkan_Shutdown();
-        ImGui_ImplGlfw_Shutdown();
-        ImGui::DestroyContext();
-
-        VulkanLayer::CleanupVulkanWindow();
-        VulkanLayer::CleanupVulkan();
-
-        glfwDestroyWindow(m_window);
-        glfwTerminate();
-    }
+    UILayer::~UILayer() = default;
 
     void UILayer::SetWindowTitle(const std::string &window_title) {
         m_window_title = window_title;
@@ -506,6 +494,20 @@ namespace UI {
         // Present Main Platform Window
         if (!main_is_minimized)
             ImGuiLayer::FramePresent(m_wd);
+    }
+
+    void UILayer::CleanUp() {
+        m_err = vkDeviceWaitIdle(g_Device);
+        VulkanLayer::check_vk_result(m_err);
+        ImGui_ImplVulkan_Shutdown();
+        ImGui_ImplGlfw_Shutdown();
+        ImGui::DestroyContext();
+
+        VulkanLayer::CleanupVulkanWindow();
+        VulkanLayer::CleanupVulkan();
+
+        glfwDestroyWindow(m_window);
+        glfwTerminate();
     }
 }
 
