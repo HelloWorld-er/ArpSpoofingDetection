@@ -97,12 +97,13 @@ namespace UI {
           bool IfSkipMainLoop() const;
           void StartOfMainLoop();
           void EndOfMainLoop();
+          void CleanUp();
      private:
           std::string m_window_title;
-          GLFWwindow* m_window{};
+          GLFWwindow* m_window = nullptr;
           VkSurfaceKHR m_surface{};
-          VkResult m_err{};
-          ImGui_ImplVulkanH_Window* m_wd{};
+          VkResult m_err;
+          ImGui_ImplVulkanH_Window* m_wd = nullptr;
           std::string m_filename;
           float m_font_size_pixel = 16.0f;
           bool m_skip_loop = false;

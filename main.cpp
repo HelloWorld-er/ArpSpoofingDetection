@@ -5,6 +5,8 @@
 #include "ArpSpoofingDetector.h"
 #include "UI.h"
 
+#include <unordered_map>
+
 
 class SharedData {
 private:
@@ -74,7 +76,6 @@ SharedData sharedData;
 
 static UI::UILayer ui_layer;
 
-std::mutex mtx;
 bool g_error_occurred = false;
 
 static void HelpMarker(const char*);
@@ -163,6 +164,9 @@ void open_welcome_page(bool* p_open) {
             ImGui::Spacing();
             ImGui::TextWrapped("So how do our app try to directly solve the arp spoofing issue? See the introduction section.");
         }
+        if (ImGui::CollapsingHeader("Limitation of this app")) {
+            ImGui::TextWrapped("This app has not considered the existence of virtual machines in the Ethernet yet.");
+        }
         if (ImGui::CollapsingHeader("Acknowledgement")) {
             ImGui::Text("This app is built 100%% by using C++, which used several external libraries");
             if (ImGui::TreeNode("packet capturing libraries")) {
@@ -232,13 +236,11 @@ void start_ui() {
     static bool show_welcome_page = true;
     static bool show_capture_page = true;
 
-
     while (!ui_layer.IfWindowShouldClose()) {
         ui_layer.StartOfMainLoop();
         if (ui_layer.IfSkipMainLoop()) continue;
 
         const ImGuiViewport* viewport = ImGui::GetMainViewport();
-
 
         // Create the DockSpace
         ImGui::DockSpaceOverViewport(viewport->ID, viewport, ImGuiDockNodeFlags_None);
@@ -261,6 +263,7 @@ void start_ui() {
 
         ui_layer.EndOfMainLoop();
     }
+    ui_layer.CleanUp();
 }
 
 void setup_ui() {
@@ -268,9 +271,9 @@ void setup_ui() {
     ui_layer.SetClearColor(ImVec4(0, 0, 0, 1));
 
     ui_layer.SetupUI();
-    ImGui::StyleColorsLight();
-    ui_layer.SetFontFile("./fonts/DIN Alternate Bold.ttf");
+    ui_layer.SetFontFile("./resources/fonts/DIN Alternate Bold.ttf");
     ui_layer.SetFontSize(40.0f);
+    ImGui::StyleColorsLight();
 }
 
 
