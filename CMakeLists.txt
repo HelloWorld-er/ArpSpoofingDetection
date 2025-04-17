@@ -9,6 +9,10 @@ set(CMAKE_CXX_STANDARD 14)
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DVK_PROTOTYPES")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DVK_PROTOTYPES")
 
+set(CMAKE_C_COMPILER "/opt/homebrew/bin/x86_64-w64-mingw32-gcc")
+set(CMAKE_CXX_COMPILER "/opt/homebrew/bin/x86_64-w64-mingw32-g++")
+
+
 # GLFW
 if(NOT GLFW_DIR)
     set(GLFW_DIR ./glfw) # Set this to point to an up-to-date GLFW repo
@@ -54,11 +58,11 @@ elseif (APPLE)
 endif()
 
 # additional package/libraries for imgui
-find_package(Freetype REQUIRED)
-include_directories(${FREETYPE_INCLUDE_DIRS})
+#find_package(Freetype REQUIRED)
+#include_directories(${FREETYPE_INCLUDE_DIRS})
 
 # set LIBRARIES variable
-set(LIBRARIES "glfw;Vulkan::Vulkan;${PCAP_LIBRARIES};${FREETYPE_LIBRARIES}")
+set(LIBRARIES "glfw;Vulkan::Vulkan;${PCAP_LIBRARIES}")
 
 # Use vulkan headers from glfw:
 include_directories(${GLFW_DIR}/deps)
@@ -66,15 +70,20 @@ include_directories(${GLFW_DIR}/deps)
 
 
 file(GLOB sources *.cpp)
-file(COPY ${CMAKE_SOURCE_DIR}/fonts DESTINATION ${CMAKE_BINARY_DIR})
+file(COPY ${CMAKE_SOURCE_DIR}/resources DESTINATION ${CMAKE_BINARY_DIR})
 
-add_executable(MainExecutable
+add_executable(ArpSpoofingDetector
     main.cpp
         ArpSpoofingDetector.cpp
         ArpSpoofingDetector.h
-        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_demo.cpp ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp ${IMGUI_DIR}/misc/freetype/imgui_freetype.cpp
+        ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp ${IMGUI_DIR}/imgui.cpp ${IMGUI_DIR}/imgui_draw.cpp ${IMGUI_DIR}/imgui_demo.cpp ${IMGUI_DIR}/imgui_tables.cpp ${IMGUI_DIR}/imgui_widgets.cpp
         UI.cpp
         UI.h
 )
-target_link_libraries(MainExecutable ${LIBRARIES})
-target_include_directories(MainExecutable PUBLIC include/ether_structure)
+target_link_libraries(ArpSpoofingDetector ${LIBRARIES})
+target_include_directories(ArpSpoofingDetector PUBLIC include/ether_structure)
+
+
+set(MACOSX_BUNDLE_ICON_FILE "/resources/icons/icon.icns")
+set_source_files_properties("/resources/icons/icon.icns" PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
+set_target_properties(ArpSpoofingDetector PROPERTIES MACOSX_BUNDLE TRUE)

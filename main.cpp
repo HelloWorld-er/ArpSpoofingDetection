@@ -271,8 +271,8 @@ void setup_ui() {
     ui_layer.SetClearColor(ImVec4(0, 0, 0, 1));
 
     ui_layer.SetupUI();
-    ui_layer.SetFontFile("./resources/fonts/DIN Alternate Bold.ttf");
-    ui_layer.SetFontSize(40.0f);
+    // ui_layer.SetFontFile("./resources/fonts/BigCaslon.ttf");
+    // ui_layer.SetFontSize(40.0f);
     ImGui::StyleColorsLight();
 }
 

@@ -601,13 +601,13 @@ void ArpSpoofingDetect::ArpSpoofingDetector::CaptureLoop(u_char *args, const pca
         auto& entry = m_MacToIPMap.at(sender_mac);
         if (!entry.ip_equals_to(sender_ip)) {
             if (entry.if_router() || entry.calc_time_pass(current_time) < m_DHCPLeaseTime) {
-                std::cerr << "[STRONG WARNING] "<< sender_mac << " doesn't match sender IP " << sender_ip << std::endl;
-                std::cerr << "Suspicious IP address: " << sender_ip << std::endl;
+                AddMessage("[STRONG WARNING] " + sender_mac + " doesn't match sender IP " + sender_ip, false, true);
+                AddMessage("Suspicious IP address: " + sender_ip, false, true);
             }
             else {
-                std::cerr << "[WEAK WARNING] It seems that " << sender_mac << " allocates to another ip address " << sender_ip << " from the previous ip address " << entry.ip_address << std::endl;
                 entry.ip_address = sender_ip;
                 entry.refresh_last_time(current_time);
+                AddMessage("[WARNING] It seems that " + sender_mac + " allocates to another ip address " + sender_ip + " from the previous ip address " + entry.ip_address, false, true);
             }
         }
         else {
@@ -624,13 +624,13 @@ void ArpSpoofingDetect::ArpSpoofingDetector::CaptureLoop(u_char *args, const pca
             auto& entry = m_MacToIPMap.at(target_mac);
             if (!entry.ip_equals_to(target_ip)) {
                 if (entry.if_router() || entry.calc_time_pass(current_time < m_DHCPLeaseTime)) {
-                    std::cerr << "[STRONG WARNING] "<< target_mac << " doesn't match sender IP " << target_ip << std::endl;
-                    std::cerr << "Suspicious IP address: " << target_ip << std::endl;
+                    AddMessage("[STRONG WARNING] " + target_mac + " doesn't match sender IP " + target_ip, false, true);
+                    AddMessage("Suspicious IP address: " + target_ip, false, true);
                 }
                 else {
-                    std::cerr << "[WEAK WARNING] It seems that " << target_mac << " allocates to another ip address " << target_ip << " from the previous ip address " << entry.ip_address << std::endl;
                     entry.ip_address = target_ip;
                     entry.refresh_last_time(current_time);
+                    AddMessage("[WARNING] It seems that " + target_mac + " allocates to another ip address " + target_ip + " from the previous ip address " + entry.ip_address, false, true);
                 }
             }
             else if (target_mac != unknown_mac_address) {
