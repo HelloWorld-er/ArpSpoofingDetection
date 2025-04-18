@@ -9,10 +9,6 @@ set(CMAKE_CXX_STANDARD 14)
 set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -DVK_PROTOTYPES")
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DVK_PROTOTYPES")
 
-set(CMAKE_C_COMPILER "/opt/homebrew/bin/x86_64-w64-mingw32-gcc")
-set(CMAKE_CXX_COMPILER "/opt/homebrew/bin/x86_64-w64-mingw32-g++")
-
-
 # GLFW
 if(NOT GLFW_DIR)
     set(GLFW_DIR ./glfw) # Set this to point to an up-to-date GLFW repo

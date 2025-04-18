@@ -248,6 +248,50 @@ void ArpSpoofingDetect::PacketCapturer::SetImmediateMode(bool active) {
     m_immediate_mode = active;
 }
 
+ArpSpoofingDetect::IPAddressEntity::
+IPAddressEntity(const std::string &ip, const std::time_t &last_seen, bool is_router = false) {
+    m_ip = ip;
+    m_last_seen_time = last_seen;
+    m_is_router = is_router;
+}
+
+ArpSpoofingDetect::IPAddressEntity::~IPAddressEntity() {
+}
+
+void ArpSpoofingDetect::IPAddressEntity::SetMAC(MACAddressEntity *mac_ptr) {
+    m_mac_ptr = mac_ptr;
+}
+
+const std::string & ArpSpoofingDetect::IPAddressEntity::GetIPAddress() const {
+    return m_ip;
+}
+
+ArpSpoofingDetect::MACAddressEntity * ArpSpoofingDetect::IPAddressEntity::GetMACAddressEntities() const {
+    return m_mac_ptr;
+}
+
+void ArpSpoofingDetect::IPAddressEntity::SetRouter() {
+    m_is_router = true;
+}
+
+ArpSpoofingDetect::MACAddressEntity::MACAddressEntity(const std::string &mac) {
+    m_mac = mac;
+}
+
+ArpSpoofingDetect::MACAddressEntity::~MACAddressEntity() {
+}
+
+void ArpSpoofingDetect::MACAddressEntity::SetIP(IPAddressEntity *ip_ptr) {
+    m_ip_ptr = ip_ptr;
+}
+
+const std::string & ArpSpoofingDetect::MACAddressEntity::GetMACAddress() const {
+    return m_mac;
+}
+
+ArpSpoofingDetect::IPAddressEntity* ArpSpoofingDetect::MACAddressEntity::GetIPAddressEntity() const {
+    return m_ip_ptr;
+}
 
 ArpSpoofingDetect::ArpSpoofingDetector::ArpSpoofingDetector(void(*MessageHandler)(const std::string &new_message, const bool& raise_error, bool end_line), bool(*IfStopCaptureLoopFn)()) {
     IfStopCaptureLoop = IfStopCaptureLoopFn;
@@ -529,18 +573,22 @@ void ArpSpoofingDetect::ArpSpoofingDetector::SetupDHCPLeaseTime() {
     // convert value in string to value in corresponding data_type
     // if (data_type == "uint64") {
     //     m_DHCPLeaseTime = hex_in_str_to_uint64(value);
+    //     AddMessage("DHCP Lease Time: " + std::to_string(m_DHCPLeaseTime), false, true);
     //     return;
     // }
     if (data_type == "uint32") {
         m_DHCPLeaseTime = hex_in_str_to_uint32(value);
+        AddMessage("DHCP Lease Time: " + std::to_string(m_DHCPLeaseTime), false, true);
         return;
     }
     if (data_type == "uint16") {
         m_DHCPLeaseTime = hex_in_str_to_uint16(value);
+        AddMessage("DHCP Lease Time: " + std::to_string(m_DHCPLeaseTime), false, true);
         return;
     }
     if (data_type == "uint8") {
         m_DHCPLeaseTime = hex_in_str_to_uint8(value);
+        AddMessage("DHCP Lease Time: " + std::to_string(m_DHCPLeaseTime), false, true);
         return;
     }
     AddMessage("unknown dhcp lease time type (e.g. uint32)", true, true);
@@ -589,55 +637,224 @@ void ArpSpoofingDetect::ArpSpoofingDetector::CaptureLoop(u_char *args, const pca
 
     std::time_t current_time = std::time(nullptr);
     // check sender mac-ip pair
-    if (m_MacToIPMap.find(sender_mac) == m_MacToIPMap.end()) {
-        if (m_RouterIPs.find(sender_mac) == m_RouterIPs.end()) {
-            m_MacToIPMap.insert({sender_mac, ActivePrivateNetworkIP(sender_ip, current_time)});
+    if (m_MACList.find(sender_mac) == m_MACList.end() && m_IPList.find(sender_ip) == m_IPList.end()) {
+        // if new mac and new ip
+        m_MACList.insert({sender_mac, MACAddressEntity(sender_mac)});
+        auto& mac_entity = m_MACList.at(sender_mac);
+        m_IPList.insert({sender_ip, IPAddressEntity(sender_ip, current_time)});
+        auto& ip_entity = m_IPList.at(sender_ip);
+        if (m_RouterIPs.find(sender_ip) != m_RouterIPs.end()) {
+            ip_entity.SetRouter();
         }
-        else {
-            m_MacToIPMap.insert({sender_mac, ActivePrivateNetworkIP(sender_ip, current_time, true)});
+        mac_entity.SetIP(&ip_entity);
+        ip_entity.SetMAC(&mac_entity);
+    }
+    else if (m_MACList.find(sender_mac) == m_MACList.end() && m_IPList.find(sender_ip) != m_IPList.end()) {
+        // if new mac and old ip
+        // old ip = gateway, mac -> arp spoofing
+        // old ip < DHCP Lease Time, new mac or old mac ? virtual : arp spoofing
+        bool flag = true;
+        MACAddressEntity mac_entity(sender_mac);
+        auto& ip_entity = m_IPList.at(sender_ip);
+
+        if (ip_entity.if_router()) {
+            flag = false;
+            AddMessage("[STRONG WARNING] Gateway conflicts! " + sender_mac + " is trying to play as the same gateway as " + ip_entity.GetMACAddressEntities()->GetMACAddress(), false, true);
+        }
+        else if (ip_entity.calc_time_pass(current_time) < m_DHCPLeaseTime && *(ip_entity.GetMACAddressEntities()) != mac_entity) {
+            flag = false;
+            AddMessage("[STRONG WARNING] " + sender_mac + " does not match previous mac address " + ip_entity.GetMACAddressEntities()->GetMACAddress() + "!\nSuspicious IP address " + sender_ip, false, true);
+        }
+        if (flag) {
+            auto previous_mac = ip_entity.GetMACAddressEntities();
+            if (*(previous_mac->GetIPAddressEntity()) == ip_entity) {
+                m_MACList.erase(previous_mac->GetMACAddress());
+            }
+            mac_entity.SetIP(&ip_entity);
+            ip_entity.SetMAC(&mac_entity);
+            ip_entity.refresh_last_time(current_time);
+            m_MACList.insert({sender_mac, mac_entity});
         }
     }
-    else {
-        auto& entry = m_MacToIPMap.at(sender_mac);
-        if (!entry.ip_equals_to(sender_ip)) {
-            if (entry.if_router() || entry.calc_time_pass(current_time) < m_DHCPLeaseTime) {
-                AddMessage("[STRONG WARNING] " + sender_mac + " doesn't match sender IP " + sender_ip, false, true);
-                AddMessage("Suspicious IP address: " + sender_ip, false, true);
-            }
-            else {
-                entry.ip_address = sender_ip;
-                entry.refresh_last_time(current_time);
-                AddMessage("[WARNING] It seems that " + sender_mac + " allocates to another ip address " + sender_ip + " from the previous ip address " + entry.ip_address, false, true);
-            }
+    else if (m_MACList.find(sender_mac) != m_MACList.end() && m_IPList.find(sender_ip) == m_IPList.end()) {
+        // old mac and new ip
+        // update new ip ?  DHCP Lease Time
+        bool flag = true;
+        auto& mac_entity = m_MACList.at(sender_mac);
+        IPAddressEntity ip_entity(sender_ip, current_time);
+        if (m_RouterIPs.find(sender_ip) != m_RouterIPs.end()) {
+            // is gateway
+            flag = false;
+            AddMessage("[STRONG WARNING] MAC address " + sender_mac + " is trying to play as the gateway!", false, true);
         }
-        else {
-            entry.refresh_last_time(current_time);
+        else if (mac_entity.GetIPAddressEntity()->if_router()) {
+            flag = false;
+            AddMessage("[STRONG WARNING] MAC address " + sender_mac + " is not the gateway! It plays as the gateway previously!", false, true);
+        }
+        else if (mac_entity.GetIPAddressEntity()->calc_time_pass(current_time) < m_DHCPLeaseTime && *(mac_entity.GetIPAddressEntity()) != ip_entity) {
+            // DHCP Lease time
+            flag = false;
+            AddMessage("[STRONG WARNING] MAC address " + sender_mac + " is using another ip address " + sender_ip + " before its previous ip address " + mac_entity.GetIPAddressEntity()->GetIPAddress() + " gets expired", false, true);
+        }
+        if (flag) {
+            auto previous_ip = mac_entity.GetIPAddressEntity();
+            if (*(previous_ip->GetMACAddressEntities()) == mac_entity) {
+                m_IPList.erase(previous_ip->GetIPAddress());
+            }
+            mac_entity.SetIP(&ip_entity);
+            ip_entity.SetMAC(&mac_entity);
+            m_IPList.insert({sender_ip, ip_entity});
+        }
+    }
+    else if (m_MACList.find(sender_mac) != m_MACList.end() && m_IPList.find(sender_ip) != m_IPList.end()) {
+        // old mac and old ip
+        bool flag = true;
+        auto& mac_entity = m_MACList.at(sender_mac);
+        auto& ip_entity = m_IPList.at(sender_ip);
+        if (*(mac_entity.GetIPAddressEntity()) != ip_entity) {
+            if (mac_entity.GetIPAddressEntity()->if_router()) {
+                flag = false;
+                AddMessage("[STRONG WARNING] MAC address " + sender_mac + " is not the gateway! It plays as the gateway previously!", false, true);
+            }
+            else if (mac_entity.GetIPAddressEntity()->calc_time_pass(current_time) < m_DHCPLeaseTime) {
+                flag = false;
+                AddMessage("[STRONG WARNING] MAC address " + sender_mac + " is using another ip address " + sender_ip + " before its previous ip address " + mac_entity.GetIPAddressEntity()->GetIPAddress() + " gets expired", false, true);
+            }
+            if (ip_entity.if_router()) {
+                flag = false;
+                AddMessage("[STRONG WARNING] MAC address " + sender_mac + " is trying to play as the gateway!", false, true);
+            }
+            else if (ip_entity.calc_time_pass(current_time) < m_DHCPLeaseTime) {
+                flag = false;
+                AddMessage("[STRONG WARNING] " + sender_mac + " does not match previous mac address " + ip_entity.GetMACAddressEntities()->GetMACAddress() + "!\nSuspicious IP address " + sender_ip, false, true);
+            }
+            if (flag) {
+                auto previous_mac = ip_entity.GetMACAddressEntities();
+                if (*(previous_mac->GetIPAddressEntity()) == ip_entity) {
+                    m_MACList.erase(previous_mac->GetMACAddress());
+                }
+                auto previous_ip = mac_entity.GetIPAddressEntity();
+                if (*(previous_ip->GetMACAddressEntities()) == mac_entity) {
+                    m_IPList.erase(previous_ip->GetIPAddress());
+                }
+                mac_entity.SetIP(&ip_entity);
+                ip_entity.SetMAC(&mac_entity);
+                ip_entity.refresh_last_time(current_time);
+            }
         }
     }
 
     // check target mac-ip pair
     if (target_mac != unknown_mac_address) {
-        if (m_MacToIPMap.find(target_mac) == m_MacToIPMap.end()) {
-            m_MacToIPMap.insert({target_mac, ActivePrivateNetworkIP(target_ip, current_time)});
-        }
-        else {
-            auto& entry = m_MacToIPMap.at(target_mac);
-            if (!entry.ip_equals_to(target_ip)) {
-                if (entry.if_router() || entry.calc_time_pass(current_time < m_DHCPLeaseTime)) {
-                    AddMessage("[STRONG WARNING] " + target_mac + " doesn't match sender IP " + target_ip, false, true);
-                    AddMessage("Suspicious IP address: " + target_ip, false, true);
-                }
-                else {
-                    entry.ip_address = target_ip;
-                    entry.refresh_last_time(current_time);
-                    AddMessage("[WARNING] It seems that " + target_mac + " allocates to another ip address " + target_ip + " from the previous ip address " + entry.ip_address, false, true);
-                }
+        if (m_MACList.find(target_mac) == m_MACList.end() && m_IPList.find(target_ip) == m_IPList.end()) {
+            // if new mac and new ip
+            m_MACList.insert({target_mac, MACAddressEntity(target_mac)});
+            auto& mac_entity = m_MACList.at(target_mac);
+            m_IPList.insert({target_ip, IPAddressEntity(target_ip, current_time)});
+            auto& ip_entity = m_IPList.at(target_ip);
+            if (m_RouterIPs.find(target_ip) != m_RouterIPs.end()) {
+                ip_entity.SetRouter();
             }
-            else if (target_mac != unknown_mac_address) {
-                entry.refresh_last_time(current_time);
+            mac_entity.SetIP(&ip_entity);
+            ip_entity.SetMAC(&mac_entity);
+        }
+        else if (m_MACList.find(target_mac) == m_MACList.end() && m_IPList.find(target_ip) != m_IPList.end()) {
+            // if new mac and old ip
+            // old ip = gateway, mac -> arp spoofing
+            // old ip < DHCP Lease Time, new mac or old mac ? virtual : arp spoofing
+            bool flag = true;
+            MACAddressEntity mac_entity(target_mac);
+            auto& ip_entity = m_IPList.at(target_ip);
+
+            if (ip_entity.if_router()) {
+                flag = false;
+                AddMessage("[STRONG WARNING] Gateway conflicts! " + target_mac + " is trying to play as the same gateway as " + ip_entity.GetMACAddressEntities()->GetMACAddress(), false, true);
+            }
+            else if (ip_entity.calc_time_pass(current_time) < m_DHCPLeaseTime && *(ip_entity.GetMACAddressEntities()) != mac_entity) {
+                flag = false;
+                AddMessage("[STRONG WARNING] " + target_mac + " does not match previous mac address " + ip_entity.GetMACAddressEntities()->GetMACAddress() + "!\nSuspicious IP address " + target_ip, false, true);
+            }
+            if (flag) {
+                auto previous_mac = ip_entity.GetMACAddressEntities();
+                if (*(previous_mac->GetIPAddressEntity()) == ip_entity) {
+                    m_MACList.erase(previous_mac->GetMACAddress());
+                }
+                mac_entity.SetIP(&ip_entity);
+                ip_entity.SetMAC(&mac_entity);
+                ip_entity.refresh_last_time(current_time);
+                m_MACList.insert({target_mac, mac_entity});
+            }
+        }
+        else if (m_MACList.find(target_mac) != m_MACList.end() && m_IPList.find(target_ip) == m_IPList.end()) {
+            // old mac and new ip
+            // update new ip ?  DHCP Lease Time
+            bool flag = true;
+            auto& mac_entity = m_MACList.at(target_mac);
+            IPAddressEntity ip_entity(target_ip, current_time);
+            if (m_RouterIPs.find(target_ip) != m_RouterIPs.end()) {
+                // is gateway
+                flag = false;
+                AddMessage("[STRONG WARNING] MAC address " + target_mac + " is trying to play as the gateway!", false, true);
+            }
+            else if (mac_entity.GetIPAddressEntity()->if_router()) {
+                flag = false;
+                AddMessage("[STRONG WARNING] MAC address " + target_mac + " is not the gateway! It plays as the gateway previously!", false, true);
+            }
+            else if (mac_entity.GetIPAddressEntity()->calc_time_pass(current_time) < m_DHCPLeaseTime && *(mac_entity.GetIPAddressEntity()) != ip_entity) {
+                // DHCP Lease time
+                flag = false;
+                AddMessage("[STRONG WARNING] MAC address " + target_mac + " is using another ip address " + target_ip + " before its previous ip address " + mac_entity.GetIPAddressEntity()->GetIPAddress() + " gets expired", false, true);
+            }
+            if (flag) {
+                auto previous_ip = mac_entity.GetIPAddressEntity();
+                if (*(previous_ip->GetMACAddressEntities()) == mac_entity) {
+                    m_IPList.erase(previous_ip->GetIPAddress());
+                }
+                mac_entity.SetIP(&ip_entity);
+                ip_entity.SetMAC(&mac_entity);
+                m_IPList.insert({target_ip, ip_entity});
+            }
+        }
+        else if (m_MACList.find(target_mac) != m_MACList.end() && m_IPList.find(target_ip) != m_IPList.end()) {
+            // old mac and old ip
+            bool flag = true;
+            auto& mac_entity = m_MACList.at(target_mac);
+            auto& ip_entity = m_IPList.at(target_ip);
+            if (*(mac_entity.GetIPAddressEntity()) != ip_entity) {
+                if (mac_entity.GetIPAddressEntity()->if_router()) {
+                    flag = false;
+                    AddMessage("[STRONG WARNING] MAC address " + target_mac + " is not the gateway! It plays as the gateway previously!", false, true);
+                }
+                else if (mac_entity.GetIPAddressEntity()->calc_time_pass(current_time) < m_DHCPLeaseTime) {
+                    flag = false;
+                    AddMessage("[STRONG WARNING] MAC address " + target_mac + " is using another ip address " + target_ip + " before its previous ip address " + mac_entity.GetIPAddressEntity()->GetIPAddress() + " gets expired", false, true);
+                }
+                if (ip_entity.if_router()) {
+                    flag = false;
+                    AddMessage("[STRONG WARNING] MAC address " + target_mac + " is trying to play as the gateway!", false, true);
+                }
+                else if (ip_entity.calc_time_pass(current_time) < m_DHCPLeaseTime) {
+                    flag = false;
+                    AddMessage("[STRONG WARNING] " + target_mac + " does not match previous mac address " + ip_entity.GetMACAddressEntities()->GetMACAddress() + "!\nSuspicious IP address " + target_ip, false, true);
+                }
+                if (flag) {
+                    auto previous_mac = ip_entity.GetMACAddressEntities();
+                    if (*(previous_mac->GetIPAddressEntity()) == ip_entity) {
+                        m_MACList.erase(previous_mac->GetMACAddress());
+                    }
+                    auto previous_ip = mac_entity.GetIPAddressEntity();
+                    if (*(previous_ip->GetMACAddressEntities()) == mac_entity) {
+                        m_IPList.erase(previous_ip->GetIPAddress());
+                    }
+                    mac_entity.SetIP(&ip_entity);
+                    ip_entity.SetMAC(&mac_entity);
+                    ip_entity.refresh_last_time(current_time);
+                }
             }
         }
     }
+
+
     static auto* detector = reinterpret_cast<ArpSpoofingDetector*>(args);
     if ((detector->IfStopCaptureLoop)()) throw std::runtime_error("Stop capture");
 }

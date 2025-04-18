@@ -2,6 +2,7 @@
 // Created by Yimin Liu on 14/4/2025.
 //
 #pragma once
+#include <iostream>
 
 #ifndef ARPSPOOFINGDETECTOR_H
 #define ARPSPOOFINGDETECTOR_H
@@ -109,29 +110,63 @@ namespace ArpSpoofingDetect {
 
     };
 
-    class ActivePrivateNetworkIP {
+    class IPAddressEntity;
+    class MACAddressEntity;
+
+    class IPAddressEntity {
     public:
-        std::string ip_address;
-        std::time_t last_seen_time;
-        bool is_router = false;
-        ActivePrivateNetworkIP(std::string ip_addr, std::time_t last_seen, bool if_router = false) {
-            ip_address = std::move(ip_addr);
-            last_seen_time = last_seen;
-            is_router = if_router;
-        }
+        explicit IPAddressEntity(const std::string& ip, const std::time_t& last_seen, bool is_router);
+        ~IPAddressEntity();
+        void SetMAC(MACAddressEntity* mac_ptr);
+        const std::string& GetIPAddress() const;
+        MACAddressEntity* GetMACAddressEntities() const;
+
+        void SetRouter();
         void refresh_last_time(std::time_t new_last_seen) {
-            last_seen_time = new_last_seen;
+            m_last_seen_time = new_last_seen;
         }
         std::time_t calc_time_pass(const std::time_t& new_last_seen) const {
-            return new_last_seen - last_seen_time;
+            return new_last_seen - m_last_seen_time;
         }
         bool ip_equals_to(const std::string& ip_addr) const {
-            return ip_address == ip_addr;
+            return m_ip == ip_addr;
         }
         bool if_router() const {
-            return is_router == true;
+            return m_is_router;
         }
+        bool operator==(const IPAddressEntity& other) const {
+            return m_ip == other.GetIPAddress();
+        }
+        bool operator!=(const IPAddressEntity& other) const {
+            return m_ip != other.GetIPAddress();
+        }
+    private:
+        std::time_t m_last_seen_time;
+        bool m_is_router = false;
+
+        std::string m_ip;
+        MACAddressEntity* m_mac_ptr = nullptr;
     };
+
+    class MACAddressEntity {
+    public:
+        explicit MACAddressEntity(const std::string& mac);
+        ~MACAddressEntity();
+        void SetIP(IPAddressEntity* ip_ptr);
+        const std::string& GetMACAddress() const;
+        IPAddressEntity* GetIPAddressEntity() const;
+        bool operator==(const MACAddressEntity& other) const {
+            return m_mac == other.GetMACAddress();
+        }
+        bool operator!=(const MACAddressEntity& other) const {
+            return m_mac != other.GetMACAddress();
+        }
+    private:
+        std::string m_mac = "00:00:00:00:00:00";
+        IPAddressEntity* m_ip_ptr = nullptr;
+
+    };
+
 
     class ArpSpoofingDetector {
     public:
@@ -162,7 +197,8 @@ namespace ArpSpoofingDetect {
         std::unordered_set<std::string> m_RouterIPs {};
         long long m_DHCPLeaseTime = 0;
 
-        std::unordered_map<std::string, ActivePrivateNetworkIP> m_MacToIPMap;
+        std::unordered_map<std::string, MACAddressEntity> m_MACList;
+        std::unordered_map<std::string, IPAddressEntity> m_IPList;
 
         const std::string unknown_mac_address = "00:00:00:00:00:00";
     };
