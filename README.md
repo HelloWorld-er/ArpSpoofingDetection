@@ -15,7 +15,7 @@ By analyzing these arp packets, we can somehow detect if arp spoofing is happeni
 
 This app cannot 100%% detect arp spoofing, but we at least make it difficult for attackers!
 
-## How to setup
+## How to setup manually
 1. Download the source code
 
 2. Install the required libraries and tools
@@ -66,4 +66,9 @@ This app cannot 100%% detect arp spoofing, but we at least make it difficult for
      ```
    - open the build directory, you will see a file named ArpSpoofingDetector which is the application file.
    - you can duplicate or move the file to your desktop. That file is the application itself.
+
+## How to install the built binary file
+1. download the zip file in each release.
+2. unzip the package, you will see an executable file. Right click 'open' to open it.
+3. you might see a terminal window pops out, just ignore it (This is because that file is a binary file compiled as a console app). A GUI window will pop out as following.
    
